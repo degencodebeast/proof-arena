@@ -1,0 +1,72 @@
+"""Application configuration — pydantic-settings with version constants.
+
+Version constants per VERSIONING.md initial defaults.
+All benchmark-semantic versions are independent from app_version.
+"""
+
+from __future__ import annotations
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# ---------------------------------------------------------------------------
+# Version constants (per VERSIONING.md)
+# ---------------------------------------------------------------------------
+
+APP_VERSION = "0.1.0"
+API_VERSION = "v1"
+CHALLENGE_VERSION = "swap_execution_v1"
+RANK_VERSION = "rank_v1"
+EVIDENCE_SCHEMA_VERSION = "evidence_v1"
+ACTION_SCHEMA_VERSION = "agent_action_v1"
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+
+class Settings(BaseSettings):
+    """Application settings loaded from environment / .env file."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    # Database
+    DATABASE_URL: str = (
+        "postgresql+asyncpg://arena:arena@localhost:5432/agent_arena"
+    )
+
+    # Solana
+    SOLANA_RPC_URL: str = "https://api.devnet.solana.com"
+    PROGRAM_ID: str = ""
+    AUTHORITY_KEYPAIR_PATH: str = ""
+
+    # Privy
+    PRIVY_APP_ID: str = ""
+    PRIVY_APP_SECRET: str = ""
+
+    # Jupiter — verify current URL via Context7 before integration
+    JUPITER_API_URL: str = "https://api.jup.ag"
+
+    # App identity
+    APP_VERSION: str = APP_VERSION
+    API_VERSION: str = API_VERSION
+    CHALLENGE_VERSION: str = CHALLENGE_VERSION
+    RANK_VERSION: str = RANK_VERSION
+    EVIDENCE_SCHEMA_VERSION: str = EVIDENCE_SCHEMA_VERSION
+    ACTION_SCHEMA_VERSION: str = ACTION_SCHEMA_VERSION
+
+    # Limits
+    MAX_SUBMISSIONS_PER_USER: int = 3
+    SUBMISSION_COOLDOWN_SECS: int = 300
+    QUOTE_MAX_AGE_SECS: int = 30
+
+    # Debug
+    DEBUG: bool = False
+
+
+settings = Settings()
