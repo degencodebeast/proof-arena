@@ -1,0 +1,1013 @@
+{
+  "version": "0.1.0",
+  "name": "agent_arena",
+  "instructions": [
+    {
+      "name": "create_challenge",
+      "accounts": [
+        {
+          "name": "challenge_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "challenge_id",
+          "type": "u64"
+        },
+        {
+          "name": "challenge_type",
+          "type": {
+            "defined": "ChallengeType"
+          }
+        },
+        {
+          "name": "challenge_version",
+          "type": "u16"
+        },
+        {
+          "name": "starting_usdc",
+          "type": "u64"
+        },
+        {
+          "name": "usdc_mint",
+          "type": "publicKey"
+        },
+        {
+          "name": "max_slippage_bps",
+          "type": "u16"
+        },
+        {
+          "name": "iteration_budget",
+          "type": "u16"
+        },
+        {
+          "name": "time_budget_secs",
+          "type": "u32"
+        },
+        {
+          "name": "num_contestants",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "create_run",
+      "accounts": [
+        {
+          "name": "run_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "challenge_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "strategy_account",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "challenge_id",
+          "type": "u64"
+        },
+        {
+          "name": "agent_id",
+          "type": "u64"
+        },
+        {
+          "name": "benchmark_wallet",
+          "type": "publicKey"
+        }
+      ]
+    },
+    {
+      "name": "finalize_run",
+      "accounts": [
+        {
+          "name": "run_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "challenge_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": [
+        {
+          "name": "ending_usdc",
+          "type": "u64"
+        },
+        {
+          "name": "run_log_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "completion_status",
+          "type": {
+            "defined": "CompletionStatus"
+          }
+        },
+        {
+          "name": "iterations_used",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "accounts": [
+        {
+          "name": "config",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "admin",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_strategy",
+      "accounts": [
+        {
+          "name": "strategy_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "owner",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "agent_id",
+          "type": "u64"
+        },
+        {
+          "name": "agent_name",
+          "type": "string"
+        },
+        {
+          "name": "submission_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "metadata_ref",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "settle_challenge",
+      "accounts": [
+        {
+          "name": "challenge_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "start_challenge",
+      "accounts": [
+        {
+          "name": "challenge_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": false,
+          "isSigner": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_agent_rank",
+      "accounts": [
+        {
+          "name": "agent_rank_account",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "strategy_account",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "config",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "authority",
+          "isMut": true,
+          "isSigner": true
+        },
+        {
+          "name": "system_program",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": [
+        {
+          "name": "agent_id",
+          "type": "u64"
+        },
+        {
+          "name": "score",
+          "type": "u16"
+        },
+        {
+          "name": "rank_version",
+          "type": "u16"
+        },
+        {
+          "name": "wins",
+          "type": "u32"
+        },
+        {
+          "name": "losses",
+          "type": "u32"
+        },
+        {
+          "name": "total_challenges",
+          "type": "u32"
+        },
+        {
+          "name": "avg_execution_quality",
+          "type": "u16"
+        },
+        {
+          "name": "consistency",
+          "type": "u16"
+        },
+        {
+          "name": "invalid_runs",
+          "type": "u32"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AgentRankAccount",
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
+      "name": "ChallengeAccount",
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
+      "name": "ConfigAccount",
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
+      "name": "RunAccount",
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    },
+    {
+      "name": "StrategyAccount",
+      "type": {
+        "kind": "struct",
+        "fields": []
+      }
+    }
+  ],
+  "types": [
+    {
+      "name": "AgentRankAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "type": "publicKey"
+          },
+          {
+            "name": "score",
+            "type": "u16"
+          },
+          {
+            "name": "rank_version",
+            "type": "u16"
+          },
+          {
+            "name": "wins",
+            "type": "u32"
+          },
+          {
+            "name": "losses",
+            "type": "u32"
+          },
+          {
+            "name": "total_challenges",
+            "type": "u32"
+          },
+          {
+            "name": "avg_execution_quality",
+            "type": "u16"
+          },
+          {
+            "name": "consistency",
+            "type": "u16"
+          },
+          {
+            "name": "invalid_runs",
+            "type": "u32"
+          },
+          {
+            "name": "last_updated",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AgentRankUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "score",
+            "type": "u16"
+          },
+          {
+            "name": "rank_version",
+            "type": "u16"
+          },
+          {
+            "name": "wins",
+            "type": "u32"
+          },
+          {
+            "name": "losses",
+            "type": "u32"
+          },
+          {
+            "name": "total_challenges",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "authority",
+            "type": "publicKey"
+          },
+          {
+            "name": "challenge_type",
+            "type": {
+              "defined": "ChallengeType"
+            }
+          },
+          {
+            "name": "challenge_version",
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": "ChallengeStatus"
+            }
+          },
+          {
+            "name": "starting_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "publicKey"
+          },
+          {
+            "name": "max_slippage_bps",
+            "type": "u16"
+          },
+          {
+            "name": "iteration_budget",
+            "type": "u16"
+          },
+          {
+            "name": "time_budget_secs",
+            "type": "u32"
+          },
+          {
+            "name": "num_contestants",
+            "type": "u8"
+          },
+          {
+            "name": "num_enrolled",
+            "type": "u8"
+          },
+          {
+            "name": "num_finalized",
+            "type": "u8"
+          },
+          {
+            "name": "winner_agent_id",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "started_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "ended_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "challenge_type",
+            "type": "u8"
+          },
+          {
+            "name": "challenge_version",
+            "type": "u16"
+          },
+          {
+            "name": "starting_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "num_contestants",
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "winner_agent_id",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "ended_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settling"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeType",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "SwapExecution"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompletionStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Complete"
+          },
+          {
+            "name": "Incomplete"
+          },
+          {
+            "name": "Invalid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "publicKey"
+          },
+          {
+            "name": "is_initialized",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "benchmark_wallet",
+            "type": "publicKey"
+          },
+          {
+            "name": "starting_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "ending_usdc",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "run_log_hash",
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": "RunStatus"
+            }
+          },
+          {
+            "name": "completion_status",
+            "type": {
+              "option": {
+                "defined": "CompletionStatus"
+              }
+            }
+          },
+          {
+            "name": "iterations_used",
+            "type": "u16"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "started_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "ended_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "ending_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "completion_status",
+            "type": "u8"
+          },
+          {
+            "name": "run_log_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Running"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Failed"
+          },
+          {
+            "name": "Timeout"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "type": "publicKey"
+          },
+          {
+            "name": "agent_name",
+            "type": "string"
+          },
+          {
+            "name": "submission_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "metadata_ref",
+            "type": "string"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "is_active",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "type": "publicKey"
+          },
+          {
+            "name": "agent_name",
+            "type": "string"
+          },
+          {
+            "name": "submission_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ],
+  "events": [
+    {
+      "name": "AgentRankUpdated",
+      "fields": []
+    },
+    {
+      "name": "ChallengeCreated",
+      "fields": []
+    },
+    {
+      "name": "ChallengeSettled",
+      "fields": []
+    },
+    {
+      "name": "ChallengeStarted",
+      "fields": []
+    },
+    {
+      "name": "RunFinalized",
+      "fields": []
+    },
+    {
+      "name": "StrategyRegistered",
+      "fields": []
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAgentName",
+      "msg": "Agent name exceeds maximum length of 64 characters"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidMetadataRef",
+      "msg": "Metadata reference exceeds maximum length of 128 characters"
+    },
+    {
+      "code": 6002,
+      "name": "ChallengeFull",
+      "msg": "Challenge has reached maximum number of contestants"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidChallengeStatus",
+      "msg": "Challenge is not in the required status for this operation"
+    },
+    {
+      "code": 6004,
+      "name": "UnauthorizedAuthority",
+      "msg": "Caller is not the authorized authority for this operation"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidStatusTransition",
+      "msg": "Invalid status transition for this entity"
+    },
+    {
+      "code": 6006,
+      "name": "RunAlreadyFinalized",
+      "msg": "Run has already been finalized"
+    },
+    {
+      "code": 6007,
+      "name": "ChallengeNotSettleable",
+      "msg": "Challenge cannot be settled in its current state"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidSlippage",
+      "msg": "Slippage exceeds maximum allowed basis points"
+    },
+    {
+      "code": 6009,
+      "name": "BudgetExceeded",
+      "msg": "Iteration or time budget exceeded"
+    },
+    {
+      "code": 6010,
+      "name": "AgentNotRegistered",
+      "msg": "Agent is not registered or strategy not found"
+    },
+    {
+      "code": 6011,
+      "name": "DuplicateAgent",
+      "msg": "Agent is already registered for this challenge"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidChallengeType",
+      "msg": "Invalid challenge type"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidChallengeVersion",
+      "msg": "Invalid challenge version"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidContestantCount",
+      "msg": "Number of contestants must be greater than zero"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidRunStatus",
+      "msg": "Run is not in the required status for this operation"
+    },
+    {
+      "code": 6016,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidScore",
+      "msg": "Score exceeds maximum value of 10000"
+    }
+  ]
+}

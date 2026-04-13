@@ -1,0 +1,1692 @@
+{
+  "address": "GFnG5esZ77F4NL3CpSE9tLHG4ExghiQuBB83ZtGYuqcu",
+  "metadata": {
+    "name": "agent_arena",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Agent Arena — benchmark and reputation layer for on-chain AI agents"
+  },
+  "instructions": [
+    {
+      "name": "create_challenge",
+      "docs": [
+        "Create a new challenge. Authority-only."
+      ],
+      "discriminator": [
+        170,
+        244,
+        47,
+        1,
+        1,
+        15,
+        173,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "challenge_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "challenge_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "docs": [
+            "Global config — proves the signer is the program admin."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "challenge_id",
+          "type": "u64"
+        },
+        {
+          "name": "challenge_type",
+          "type": {
+            "defined": {
+              "name": "ChallengeType"
+            }
+          }
+        },
+        {
+          "name": "challenge_version",
+          "type": "u16"
+        },
+        {
+          "name": "starting_usdc",
+          "type": "u64"
+        },
+        {
+          "name": "usdc_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "max_slippage_bps",
+          "type": "u16"
+        },
+        {
+          "name": "iteration_budget",
+          "type": "u16"
+        },
+        {
+          "name": "time_budget_secs",
+          "type": "u32"
+        },
+        {
+          "name": "num_contestants",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "create_run",
+      "docs": [
+        "Create a run for an agent in a challenge. Authority-only."
+      ],
+      "discriminator": [
+        195,
+        241,
+        245,
+        139,
+        101,
+        109,
+        209,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "run_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  117,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "challenge_id"
+              },
+              {
+                "kind": "arg",
+                "path": "agent_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "challenge_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "challenge_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_account",
+          "docs": [
+            "The strategy must exist and be active."
+          ]
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "challenge_id",
+          "type": "u64"
+        },
+        {
+          "name": "agent_id",
+          "type": "u64"
+        },
+        {
+          "name": "benchmark_wallet",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "finalize_run",
+      "docs": [
+        "Finalize a completed run with results. Authority-only."
+      ],
+      "discriminator": [
+        79,
+        6,
+        112,
+        246,
+        170,
+        39,
+        103,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "run_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  117,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "run_account.challenge_id",
+                "account": "RunAccount"
+              },
+              {
+                "kind": "account",
+                "path": "run_account.agent_id",
+                "account": "RunAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "challenge_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "challenge_account.challenge_id",
+                "account": "ChallengeAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "ending_usdc",
+          "type": "u64"
+        },
+        {
+          "name": "run_log_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "completion_status",
+          "type": {
+            "defined": {
+              "name": "CompletionStatus"
+            }
+          }
+        },
+        {
+          "name": "iterations_used",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "initialize",
+      "docs": [
+        "Initialize program config with admin pubkey. One-time setup."
+      ],
+      "discriminator": [
+        175,
+        175,
+        109,
+        31,
+        13,
+        152,
+        155,
+        237
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_strategy",
+      "docs": [
+        "Register a new strategy. Owner-signed (not authority)."
+      ],
+      "discriminator": [
+        121,
+        12,
+        64,
+        75,
+        99,
+        15,
+        177,
+        143
+      ],
+      "accounts": [
+        {
+          "name": "strategy_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "arg",
+                "path": "agent_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "agent_id",
+          "type": "u64"
+        },
+        {
+          "name": "agent_name",
+          "type": "string"
+        },
+        {
+          "name": "submission_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "metadata_ref",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "settle_challenge",
+      "docs": [
+        "Settle a challenge and determine winner. Authority-only.",
+        "Pass all RunAccount PDAs as remaining_accounts."
+      ],
+      "discriminator": [
+        242,
+        58,
+        232,
+        150,
+        127,
+        199,
+        11,
+        204
+      ],
+      "accounts": [
+        {
+          "name": "challenge_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "challenge_account.challenge_id",
+                "account": "ChallengeAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "start_challenge",
+      "docs": [
+        "Start a pending challenge. Authority-only."
+      ],
+      "discriminator": [
+        241,
+        96,
+        253,
+        187,
+        177,
+        158,
+        16,
+        122
+      ],
+      "accounts": [
+        {
+          "name": "challenge_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  97,
+                  108,
+                  108,
+                  101,
+                  110,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "challenge_account.challenge_id",
+                "account": "ChallengeAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_agent_rank",
+      "docs": [
+        "Create or update an agent's rank record. Authority-only."
+      ],
+      "discriminator": [
+        109,
+        69,
+        19,
+        189,
+        78,
+        54,
+        246,
+        156
+      ],
+      "accounts": [
+        {
+          "name": "agent_rank_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116,
+                  95,
+                  114,
+                  97,
+                  110,
+                  107
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agent_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_account",
+          "docs": [
+            "Strategy account proves the real owner of this agent."
+          ]
+        },
+        {
+          "name": "config",
+          "docs": [
+            "Global config — proves the signer is the program admin."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "agent_id",
+          "type": "u64"
+        },
+        {
+          "name": "score",
+          "type": "u16"
+        },
+        {
+          "name": "rank_version",
+          "type": "u16"
+        },
+        {
+          "name": "wins",
+          "type": "u32"
+        },
+        {
+          "name": "losses",
+          "type": "u32"
+        },
+        {
+          "name": "total_challenges",
+          "type": "u32"
+        },
+        {
+          "name": "avg_execution_quality",
+          "type": "u16"
+        },
+        {
+          "name": "consistency",
+          "type": "u16"
+        },
+        {
+          "name": "invalid_runs",
+          "type": "u32"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AgentRankAccount",
+      "discriminator": [
+        186,
+        126,
+        56,
+        39,
+        73,
+        161,
+        231,
+        182
+      ]
+    },
+    {
+      "name": "ChallengeAccount",
+      "discriminator": [
+        96,
+        128,
+        44,
+        165,
+        71,
+        172,
+        60,
+        12
+      ]
+    },
+    {
+      "name": "ConfigAccount",
+      "discriminator": [
+        189,
+        255,
+        97,
+        70,
+        186,
+        189,
+        24,
+        102
+      ]
+    },
+    {
+      "name": "RunAccount",
+      "discriminator": [
+        194,
+        169,
+        110,
+        230,
+        235,
+        11,
+        225,
+        22
+      ]
+    },
+    {
+      "name": "StrategyAccount",
+      "discriminator": [
+        97,
+        218,
+        254,
+        239,
+        248,
+        146,
+        59,
+        42
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AgentRankUpdated",
+      "discriminator": [
+        149,
+        15,
+        172,
+        107,
+        64,
+        127,
+        24,
+        36
+      ]
+    },
+    {
+      "name": "ChallengeCreated",
+      "discriminator": [
+        166,
+        178,
+        174,
+        178,
+        11,
+        172,
+        98,
+        243
+      ]
+    },
+    {
+      "name": "ChallengeSettled",
+      "discriminator": [
+        96,
+        70,
+        232,
+        36,
+        45,
+        207,
+        169,
+        122
+      ]
+    },
+    {
+      "name": "ChallengeStarted",
+      "discriminator": [
+        89,
+        213,
+        157,
+        182,
+        49,
+        35,
+        172,
+        3
+      ]
+    },
+    {
+      "name": "RunFinalized",
+      "discriminator": [
+        247,
+        25,
+        108,
+        145,
+        59,
+        19,
+        55,
+        68
+      ]
+    },
+    {
+      "name": "StrategyRegistered",
+      "discriminator": [
+        167,
+        54,
+        3,
+        14,
+        221,
+        37,
+        211,
+        214
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidAgentName",
+      "msg": "Agent name exceeds maximum length of 64 characters"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidMetadataRef",
+      "msg": "Metadata reference exceeds maximum length of 128 characters"
+    },
+    {
+      "code": 6002,
+      "name": "ChallengeFull",
+      "msg": "Challenge has reached maximum number of contestants"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidChallengeStatus",
+      "msg": "Challenge is not in the required status for this operation"
+    },
+    {
+      "code": 6004,
+      "name": "UnauthorizedAuthority",
+      "msg": "Caller is not the authorized authority for this operation"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidStatusTransition",
+      "msg": "Invalid status transition for this entity"
+    },
+    {
+      "code": 6006,
+      "name": "RunAlreadyFinalized",
+      "msg": "Run has already been finalized"
+    },
+    {
+      "code": 6007,
+      "name": "ChallengeNotSettleable",
+      "msg": "Challenge cannot be settled in its current state"
+    },
+    {
+      "code": 6008,
+      "name": "InvalidSlippage",
+      "msg": "Slippage exceeds maximum allowed basis points"
+    },
+    {
+      "code": 6009,
+      "name": "BudgetExceeded",
+      "msg": "Iteration or time budget exceeded"
+    },
+    {
+      "code": 6010,
+      "name": "AgentNotRegistered",
+      "msg": "Agent is not registered or strategy not found"
+    },
+    {
+      "code": 6011,
+      "name": "DuplicateAgent",
+      "msg": "Agent is already registered for this challenge"
+    },
+    {
+      "code": 6012,
+      "name": "InvalidChallengeType",
+      "msg": "Invalid challenge type"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidChallengeVersion",
+      "msg": "Invalid challenge version"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidContestantCount",
+      "msg": "Number of contestants must be greater than zero"
+    },
+    {
+      "code": 6015,
+      "name": "InvalidRunStatus",
+      "msg": "Run is not in the required status for this operation"
+    },
+    {
+      "code": 6016,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidScore",
+      "msg": "Score exceeds maximum value of 10000"
+    }
+  ],
+  "types": [
+    {
+      "name": "AgentRankAccount",
+      "docs": [
+        "On-chain agent rank — latest performance summary only.",
+        "This is a mutable PDA overwritten on each update.",
+        "",
+        "PDA seeds: [b\"agent_rank\", agent_id.to_le_bytes()]",
+        "",
+        "On-chain stores: LATEST summary only (score, wins, losses, etc.).",
+        "Off-chain (Postgres rank_snapshots): stores FULL HISTORY of every",
+        "rank computation, never overwrites. Enables formula changes and audits.",
+        "",
+        "Score is stored as u16 (0-10000) representing 0.00-100.00 with",
+        "2 decimal precision."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "docs": [
+              "Agent this rank belongs to"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "Strategy owner"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "score",
+            "docs": [
+              "AgentRank score: 0-10000 (maps to 0.00-100.00)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "rank_version",
+            "docs": [
+              "Rank formula version as numeric code (1 = rank_v1)",
+              "Mapping: constants::RANK_VERSION_V1"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "wins",
+            "docs": [
+              "Total challenge wins"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "losses",
+            "docs": [
+              "Total challenge losses"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "total_challenges",
+            "docs": [
+              "Total challenges participated in"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "avg_execution_quality",
+            "docs": [
+              "Average execution quality: 0-10000 (maps to 0.00-100.00)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "consistency",
+            "docs": [
+              "Performance consistency: 0-10000 (maps to 0.00-100.00)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "invalid_runs",
+            "docs": [
+              "Number of invalid runs"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "last_updated",
+            "docs": [
+              "Unix timestamp of last rank update"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AgentRankUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "score",
+            "type": "u16"
+          },
+          {
+            "name": "rank_version",
+            "type": "u16"
+          },
+          {
+            "name": "wins",
+            "type": "u32"
+          },
+          {
+            "name": "losses",
+            "type": "u32"
+          },
+          {
+            "name": "total_challenges",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeAccount",
+      "docs": [
+        "On-chain challenge definition — benchmark config and settlement state.",
+        "",
+        "PDA seeds: [b\"challenge\", challenge_id.to_le_bytes()]",
+        "",
+        "On-chain stores: config params, lifecycle status, winner.",
+        "Off-chain (Postgres) stores: full config_json, rich evidence."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "docs": [
+              "Unique challenge identifier"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Admin authority that manages this challenge"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "challenge_type",
+            "docs": [
+              "Challenge type as compact enum (0 = SwapExecution)"
+            ],
+            "type": {
+              "defined": {
+                "name": "ChallengeType"
+              }
+            }
+          },
+          {
+            "name": "challenge_version",
+            "docs": [
+              "Challenge version as numeric code (1 = swap_execution_v1)",
+              "Mapping: constants::CHALLENGE_VERSION_SWAP_V1"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Current lifecycle status"
+            ],
+            "type": {
+              "defined": {
+                "name": "ChallengeStatus"
+              }
+            }
+          },
+          {
+            "name": "starting_usdc",
+            "docs": [
+              "Starting USDC amount for each contestant (base units, 6 decimals)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "usdc_mint",
+            "docs": [
+              "USDC mint address on this cluster"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "max_slippage_bps",
+            "docs": [
+              "Maximum allowed slippage in basis points"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "iteration_budget",
+            "docs": [
+              "Maximum number of decision iterations per run"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "time_budget_secs",
+            "docs": [
+              "Maximum wall-clock time per run in seconds"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "num_contestants",
+            "docs": [
+              "Expected number of contestants"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "num_enrolled",
+            "docs": [
+              "Number of runs actually created (enrolled)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "num_finalized",
+            "docs": [
+              "Number of runs finalized so far"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "winner_agent_id",
+            "docs": [
+              "Winner agent_id after settlement (None until settled)"
+            ],
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp of creation"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "started_at",
+            "docs": [
+              "Unix timestamp when challenge became Active"
+            ],
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "ended_at",
+            "docs": [
+              "Unix timestamp when challenge completed/cancelled"
+            ],
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "challenge_type",
+            "type": "u8"
+          },
+          {
+            "name": "challenge_version",
+            "type": "u16"
+          },
+          {
+            "name": "starting_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "num_contestants",
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "winner_agent_id",
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "ended_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeStarted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "started_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeStatus",
+      "docs": [
+        "Challenge lifecycle status."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settling"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChallengeType",
+      "docs": [
+        "Challenge type — u8 enum. Mapping defined in constants.rs.",
+        "V1: SwapExecution = 0. V2 will add YieldSprint, etc."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "SwapExecution"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompletionStatus",
+      "docs": [
+        "Run completion validity — determines benchmark eligibility.",
+        "SEPARATE from RunStatus. A run can be Completed but Incomplete.",
+        "",
+        "Only Complete runs can win settlement."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Complete"
+          },
+          {
+            "name": "Incomplete"
+          },
+          {
+            "name": "Invalid"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigAccount",
+      "docs": [
+        "Global program configuration — stores the admin authority.",
+        "",
+        "PDA seeds: [b\"config\"]",
+        "",
+        "The admin is the only pubkey that can create challenges,",
+        "update agent ranks, and perform other privileged operations.",
+        "Set once via initialize instruction."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "The program admin (backend authority)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "is_initialized",
+            "docs": [
+              "Whether this config has been initialized"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunAccount",
+      "docs": [
+        "On-chain run record — execution state and outcome for one agent in one challenge.",
+        "",
+        "PDA seeds: [b\"run\", challenge_id.to_le_bytes(), agent_id.to_le_bytes()]",
+        "",
+        "On-chain stores: outcome summary (balances, status, hash).",
+        "Off-chain (Postgres) stores: full RunEvent sequence, rich evidence."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "docs": [
+              "Challenge this run belongs to"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "agent_id",
+            "docs": [
+              "Agent executing this run"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "benchmark_wallet",
+            "docs": [
+              "Privy-managed benchmark wallet for this run"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "starting_usdc",
+            "docs": [
+              "Starting USDC balance (base units, 6 decimals)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "ending_usdc",
+            "docs": [
+              "Ending USDC balance after flattening (None until finalized)"
+            ],
+            "type": {
+              "option": "u64"
+            }
+          },
+          {
+            "name": "run_log_hash",
+            "docs": [
+              "SHA-256 of the full RunEvent sequence (evidence anchor)"
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Lifecycle status (execution progress)"
+            ],
+            "type": {
+              "defined": {
+                "name": "RunStatus"
+              }
+            }
+          },
+          {
+            "name": "completion_status",
+            "docs": [
+              "Completion validity (benchmark eligibility) — None until finalized"
+            ],
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "CompletionStatus"
+                }
+              }
+            }
+          },
+          {
+            "name": "iterations_used",
+            "docs": [
+              "Number of decision iterations used"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp of run creation"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "started_at",
+            "docs": [
+              "Unix timestamp when run started executing"
+            ],
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "ended_at",
+            "docs": [
+              "Unix timestamp when run finished"
+            ],
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "challenge_id",
+            "type": "u64"
+          },
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "ending_usdc",
+            "type": "u64"
+          },
+          {
+            "name": "completion_status",
+            "type": "u8"
+          },
+          {
+            "name": "run_log_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "RunStatus",
+      "docs": [
+        "Run lifecycle status — tracks execution progress.",
+        "This is NOT the same as benchmark validity."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Running"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Failed"
+          },
+          {
+            "name": "Timeout"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyAccount",
+      "docs": [
+        "On-chain strategy registration — links an agent identity to a submission hash.",
+        "",
+        "PDA seeds: [b\"strategy\", owner.key().as_ref(), agent_id.to_le_bytes()]",
+        "",
+        "On-chain stores: identity + submission hash.",
+        "Off-chain (Postgres) stores: full system_prompt, config_json, rich metadata."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "docs": [
+              "Unique agent identifier (matches Postgres agents.agent_id)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "docs": [
+              "Strategy owner's public key (signer at registration)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "agent_name",
+            "docs": [
+              "Human-readable agent name"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "submission_hash",
+            "docs": [
+              "SHA-256 of normalized (system_prompt + config_json)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "metadata_ref",
+            "docs": [
+              "Optional reference to metadata (IPFS hash, URL, etc.)"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Unix timestamp of registration"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "is_active",
+            "docs": [
+              "Whether this strategy is currently active"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "PDA bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "agent_name",
+            "type": "string"
+          },
+          {
+            "name": "submission_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          }
+        ]
+      }
+    }
+  ]
+}
