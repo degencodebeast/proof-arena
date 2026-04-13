@@ -1,0 +1,32 @@
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Rust / Anchor build artifacts
+/target/
+**/*.rs.bk
+
+# Solana / Anchor local keypairs and deploy leftovers
+.anchor/
+test-ledger/
+
+# Python virtualenvs and caches
+backend/.venv/
+**/__pycache__/
+**/.pytest_cache/
+*.py[cod]
+
+# Python packaging / coverage
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+
+# JS package installs
+node_modules/
+
+# Generic env / local overrides
+.env
+.env.*
+!.env.example
