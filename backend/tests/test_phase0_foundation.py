@@ -237,13 +237,13 @@ class TestProtocolCompliance:
         assert isinstance(StubAdapter(), ChallengeAdapter)
 
     def test_action_validator_stub(self):
-        from src.integrity import ActionValidator, ValidationResult
+        from src.integrity import ActionValidatorProtocol, ValidationResult
 
         class StubValidator:
             async def validate(self, action, state) -> ValidationResult:
                 return ValidationResult(valid=True)
 
-        assert isinstance(StubValidator(), ActionValidator)
+        assert isinstance(StubValidator(), ActionValidatorProtocol)
 
     def test_non_conforming_class_rejected(self):
         from src.providers.base import AgentDecisionProvider
