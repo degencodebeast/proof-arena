@@ -35,6 +35,6 @@ async def health():
     }
 
 
-# API router will be mounted by Task 11:
-# from src.api.router import api_router
-# app.include_router(api_router)
+from src.api.router import api_router
+
+app.include_router(api_router)

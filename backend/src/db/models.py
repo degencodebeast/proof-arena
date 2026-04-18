@@ -198,6 +198,7 @@ class Run(Base):
         Index("idx_runs_challenge_id", "challenge_id"),
         Index("idx_runs_agent_id", "agent_id"),
         Index("idx_runs_status", "status"),
+        Index("uq_runs_challenge_agent", "challenge_id", "agent_id", unique=True),
     )
 
 

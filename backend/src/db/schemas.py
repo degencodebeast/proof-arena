@@ -156,6 +156,7 @@ class RunEventType(str, Enum):
     FLATTEN = "flatten"
     BUDGET_EXCEEDED = "budget_exceeded"
     FINALIZE = "finalize"
+    ONCHAIN_FINALIZE = "onchain_finalize"  # Post-hash operational event
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +238,7 @@ class RunEventSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     event_id: int
+    run_id: int
     sequence_no: int
     event_type: str
     timestamp: datetime

@@ -42,12 +42,18 @@ class Settings(BaseSettings):
 
     # Solana
     SOLANA_RPC_URL: str = "https://api.devnet.solana.com"
+    SOLANA_CLUSTER: str = "devnet"  # devnet | mainnet-beta | testnet
     PROGRAM_ID: str = ""
     AUTHORITY_KEYPAIR_PATH: str = ""
+    TREASURY_KEYPAIR_PATH: str = ""
+    USDC_MINT: str = ""  # Cluster-specific USDC mint address
 
     # Privy
     PRIVY_APP_ID: str = ""
     PRIVY_APP_SECRET: str = ""
+
+    # OpenRouter (optional — for openrouter LLM provider)
+    OPENROUTER_API_KEY: str = ""
 
     # Jupiter — verify current URL via Context7 before integration
     JUPITER_API_URL: str = "https://api.jup.ag"
@@ -64,6 +70,9 @@ class Settings(BaseSettings):
     MAX_SUBMISSIONS_PER_USER: int = 3
     SUBMISSION_COOLDOWN_SECS: int = 300
     QUOTE_MAX_AGE_SECS: int = 30
+
+    # Admin
+    ADMIN_API_KEY: str = ""  # Required for admin endpoints
 
     # Debug
     DEBUG: bool = False

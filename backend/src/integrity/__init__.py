@@ -22,15 +22,27 @@ class ValidationResult:
 
 
 @runtime_checkable
-class ActionValidator(Protocol):
-    """Protocol for pre-execution action validation.
-
-    Checks: schema validity, action whitelist, quote freshness,
-    slippage bounds, route whitelist, iteration budget.
-    """
+class ActionValidatorProtocol(Protocol):
+    """Protocol for pre-execution action validation."""
 
     async def validate(
         self, action: dict[str, Any], state: dict[str, Any]
     ) -> ValidationResult:
-        """Validate an agent action against all constraints."""
         ...
+
+
+# Re-export concrete implementations for clean imports
+from src.integrity.action_validator import ActionValidator  # noqa: E402
+from src.integrity.completion_evaluator import CompletionEvaluator  # noqa: E402
+from src.integrity.run_auditor import RunAuditor  # noqa: E402
+from src.integrity.settlement_verifier import SettlementEligibility, SettlementVerifier  # noqa: E402
+
+__all__ = [
+    "ValidationResult",
+    "ActionValidatorProtocol",
+    "ActionValidator",
+    "CompletionEvaluator",
+    "RunAuditor",
+    "SettlementVerifier",
+    "SettlementEligibility",
+]
