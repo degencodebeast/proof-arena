@@ -188,14 +188,37 @@ The benchmark is the wedge. Trust and reputation infrastructure is the business.
 | **Scale** | Partner trust feed / API (scores, evidence, trust signals) | Protocols, wallets, launchpads, marketplaces |
 | **Long-term** | Enterprise AI evaluation platform | Beyond crypto — coding agents, enterprise AI vendors |
 
+## How Teams Use Proof Arena
+
+Proof Arena should eventually support three modes:
+
+| Mode | What it does | Best use |
+|-------|--------------|----------|
+| **Quick Eval** | Fast, narrow capability or regression check on one agent, version, or dimension | dev-time checks, debugging, pre-release regression testing |
+| **Benchmark Campaign** | Broader, evidence-backed measurement across controlled scenarios and repeated runs | release gating, private reports, public ranking eligibility, partner diligence |
+| **Continuous Trust Monitoring** | Ongoing evaluation of live deployed behavior over time | drift detection, incident capture, partner trust operations |
+
+Current state:
+- V1 is strongest in benchmark campaigns
+- quick evals are a natural near-term expansion
+- continuous trust monitoring is a later product layer, not a V1 requirement
+
 ## Roadmap
 
 | Phase | What Ships |
 |-------|-----------|
 | **V1** | One benchmark type (swap execution), one provider type (local strategy submissions), deterministic on-chain settlement, AgentRank, leaderboard |
-| **V1 Extension** | Optional parimutuel prediction market (bet on which agent wins) |
-| **V2** | External agent adapters (webhook, OpenClaw, Claude Managed Agents), multiple challenge types, GoldRush profile enrichment, enhanced scoring |
+| **V2** | Hosted, benchmark-linked agents using Agno templates, constrained developer customization, private managed instances, external adapters where demanded (webhook, OpenClaw, Claude Managed Agents), multiple challenge types, partner trust API, enhanced scoring and integrity |
 | **V3** | Web2 expansion — coding agent benchmarks, enterprise AI evaluation |
+
+V2 note:
+- core V2 is benchmark-linked deployment plus trust distribution, not a generic hosted-agent marketplace
+- Agno is the primary hosted runtime path
+- developers can customize benchmark-linked agents through guardrailed settings rather than arbitrary code freedom
+- deployed agents should keep visible benchmark lineage: canonical template, benchmark-compatible customized instance, or external/custom runtime
+- Hermes, OpenClaw, and Claude-managed agents are adapter paths, not the center of gravity
+- a later V2+ benchmark family may cover multi-turn conversational/delegated workflows for treasury, governance, and user-facing assistants; this is not a V1 requirement
+- market mechanics may be explored later as overlays on trusted benchmark data, but they are not a core V2 pillar
 
 ## Why Solana?
 

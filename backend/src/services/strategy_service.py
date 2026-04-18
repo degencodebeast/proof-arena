@@ -152,12 +152,14 @@ class StrategyService:
         return list(result.scalars().all())
 
     async def get_active_count(self, privy_user_id: str) -> int:
+        """Count submissions for anti-spam. Includes all non-disabled statuses."""
+        countable = ("active", "pending_onchain", "onchain_failed")
         result = await self.db.execute(
             select(func.count())
             .select_from(Agent)
             .where(
                 Agent.privy_user_id == privy_user_id,
-                Agent.status == "active",
+                Agent.status.in_(countable),
             )
         )
         return result.scalar_one()

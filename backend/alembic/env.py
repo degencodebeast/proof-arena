@@ -1,6 +1,7 @@
 """Alembic env.py — configured for async SQLAlchemy with our ORM models."""
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
@@ -8,6 +9,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+from src.config import settings
 from src.db.models import Base
 
 config = context.config
@@ -16,6 +18,14 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+
+# Prefer runtime configuration over alembic.ini's local-dev placeholder.
+# In Docker, localhost points at the backend container, while Postgres is
+# reachable through the compose service name in DATABASE_URL.
+config.set_main_option(
+    "sqlalchemy.url",
+    os.environ.get("DATABASE_URL", settings.DATABASE_URL),
+)
 
 
 def run_migrations_offline() -> None:

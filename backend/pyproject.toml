@@ -29,6 +29,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24.0",
     "ruff>=0.8.0",
+    "aiosqlite>=0.19.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -41,3 +42,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 # Disable anchorpy pytest plugin — incompatible with Python 3.14
 addopts = "-p no:anchorpy"
+markers = [
+    "integration: Task 15 integration tests (deterministic lifecycle, no live RPC)",
+    "slow: tests that take more than a few seconds",
+]
