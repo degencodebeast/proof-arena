@@ -40,7 +40,12 @@ def test_saga_failure_reason_values():
 
 
 def test_run_invalid_reason_preserves_v1_strings():
-    """RunInvalidReason preserves all 6 V1 values byte-equal to schemas.InvalidReason."""
+    """Transitional boundary guard: RunInvalidReason supersedes the legacy V1
+    ``db.schemas.InvalidReason`` enum, but both enums coexist until V1
+    consumers are migrated in a later refactor. This test locks the V1 value
+    set byte-equal into ``RunInvalidReason`` so the two sources cannot drift
+    while the legacy enum is still imported by other modules.
+    """
     from src.db.schemas import InvalidReason as V1InvalidReason
     from src.integrity.failure_taxonomy import RunInvalidReason
 
@@ -49,7 +54,7 @@ def test_run_invalid_reason_preserves_v1_strings():
     for v1_member in V1InvalidReason:
         assert v1_member.value in v2_values, (
             f"V1 value {v1_member.value!r} is missing from RunInvalidReason; "
-            "migration would break pre-existing runs"
+            "pre-existing runs rows would fail the new CHECK"
         )
 
 
@@ -132,3 +137,25 @@ def test_copy_map_has_no_orphan_entries():
     allowed = set(SagaFailureReason) | set(RunInvalidReason)
     orphans = set(FAILURE_COPY_MAP.keys()) - allowed
     assert not orphans, f"FAILURE_COPY_MAP has orphan entries: {orphans}"
+
+
+# Test 7b (drift guard for the SQL CHECK list) -------------------------
+
+
+def test_run_invalid_reason_check_sql_matches_enum():
+    """The CHECK-list in db/models.py must stay byte-equal to the enum.
+
+    db/models.py cannot import from src.integrity (integrity/__init__.py
+    eagerly loads modules that import from db.models, creating a circular
+    import). It duplicates the enum values as a tuple. This test keeps both
+    sides in sync — any drift fails here rather than silently at runtime.
+    """
+    from src.db.models import _RUN_INVALID_REASON_VALUES
+    from src.integrity.failure_taxonomy import RunInvalidReason
+
+    assert (
+        tuple(m.value for m in RunInvalidReason) == _RUN_INVALID_REASON_VALUES
+    ), (
+        "db/models.py _RUN_INVALID_REASON_VALUES is out of sync with "
+        "RunInvalidReason. Update both atomically."
+    )

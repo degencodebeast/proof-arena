@@ -60,28 +60,18 @@ async def _insert_prereqs(db: AsyncSession) -> tuple[int, int]:
     from src.db.models import Agent, Challenge
 
     agent = Agent(
-        agent_name="t",
-        submission_type="local",
-        submission_hash="a" * 64,
-        system_prompt="x",
-        config_json="{}",
-        provider_type="local",
         privy_user_id="u",
         owner_wallet="w" * 44,
-        onchain_address="o" * 44,
+        display_name="t",
+        submission_hash="a" * 64,
+        system_prompt="x",
     )
     db.add(agent)
 
     challenge = Challenge(
-        challenge_type="swap_execution",
-        challenge_version="swap_execution_v1",
         llm_provider="anthropic",
         llm_model="claude-3-5-sonnet-20241022",
         config_json="{}",
-        status="pending",
-        num_contestants=1,
-        num_finalized=0,
-        onchain_address="c" * 44,
     )
     db.add(challenge)
     await db.flush()
@@ -128,14 +118,37 @@ async def test_null_invalid_reason_accepted(db):
 
 
 async def test_all_enum_values_valid_for_check(db):
-    """Every RunInvalidReason enum value must pass the CHECK."""
+    """Every RunInvalidReason enum value must pass the CHECK.
+
+    Seeds one distinct (agent, challenge) pair per value to avoid the
+    `uq_runs_challenge_agent` unique index firing before the CHECK.
+    """
+    from src.db.models import Agent, Challenge, Run
     from src.integrity.failure_taxonomy import RunInvalidReason
 
-    for reason in RunInvalidReason:
-        # Use a fresh session per iteration to avoid cross-row side effects.
-        # The fixture gives us one session; scope per-iteration via savepoint.
-        await db.begin_nested()
-        try:
-            await _insert_run(db, invalid_reason=reason.value)
-        finally:
-            await db.rollback()
+    for idx, reason in enumerate(RunInvalidReason):
+        agent = Agent(
+            privy_user_id=f"u{idx}",
+            owner_wallet=("w" * 43 + str(idx))[-44:],
+            display_name=f"t{idx}",
+            submission_hash=str(idx).rjust(64, "a"),
+            system_prompt="x",
+        )
+        challenge = Challenge(
+            llm_provider="anthropic",
+            llm_model="claude-3-5-sonnet-20241022",
+            config_json="{}",
+        )
+        db.add_all([agent, challenge])
+        await db.flush()
+        db.add(
+            Run(
+                challenge_id=challenge.challenge_id,
+                agent_id=agent.agent_id,
+                status="completed",
+                completion_status="invalid",
+                invalid_reason=reason.value,
+            )
+        )
+    # If any enum value violates the CHECK, this flush raises IntegrityError.
+    await db.flush()

@@ -15,15 +15,15 @@ import os
 from fastapi.testclient import TestClient
 
 
-os.environ["ADMIN_API_KEY"] = "test-admin-key-a6-api"
+# NOTE: do NOT rewrite ``settings.ADMIN_API_KEY`` here. This endpoint is
+# public (no auth), and mutating the admin key at module import time
+# pollutes other test modules (e.g. test_task11_api.py) that rely on their
+# own admin-key value.
+os.environ.setdefault("ADMIN_API_KEY", "test-admin-key-a6-api")
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://test:test@localhost:5432/unused",
 )
-
-from src.config import settings
-
-settings.ADMIN_API_KEY = "test-admin-key-a6-api"
 
 from src.main import app
 

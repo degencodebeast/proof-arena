@@ -12,6 +12,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -22,6 +23,37 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# V2 A-6 — CHECK-list for runs.invalid_reason.
+#
+# The authoritative enum lives in src/integrity/failure_taxonomy.py
+# (``RunInvalidReason``). We do NOT import it here because the integrity
+# package's ``__init__`` eagerly imports modules that back-reference
+# ``src.db.models`` (circular import). The A-6 test
+# ``test_run_invalid_reason_check_sql_matches_enum`` asserts this list stays
+# byte-equal to the enum; any drift fails fast. Do not edit in isolation —
+# update both the enum and this tuple atomically.
+_RUN_INVALID_REASON_VALUES: tuple[str, ...] = (
+    # V1 preserved
+    "incomplete_required_actions",
+    "invalid_action_attempts_exceeded",
+    "stale_quote_execution_failed",
+    "timeout_before_completion",
+    "flattening_failed",
+    "execution_error",
+    # V2 additions
+    "mainnet_guard_triggered",
+    "wallet_policy_rejected",
+    "runtime_invocation_failed",
+    "authorization_signature_rejected",
+    "hosted_wallet_unavailable",
+)
+
+_RUN_INVALID_REASON_CHECK_SQL = (
+    "invalid_reason IS NULL OR invalid_reason IN ("
+    + ", ".join(f"'{v}'" for v in _RUN_INVALID_REASON_VALUES)
+    + ")"
+)
 
 
 class Base(DeclarativeBase):
@@ -206,6 +238,11 @@ class Run(Base):
         Index("idx_runs_agent_id", "agent_id"),
         Index("idx_runs_status", "status"),
         Index("uq_runs_challenge_agent", "challenge_id", "agent_id", unique=True),
+        # V2 A-6: invalid_reason must be NULL or one of RunInvalidReason.
+        CheckConstraint(
+            _RUN_INVALID_REASON_CHECK_SQL,
+            name="ck_runs_invalid_reason",
+        ),
     )
 
 
