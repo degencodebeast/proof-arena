@@ -417,9 +417,13 @@ class TestAgentArenaClientConstruction:
 
         ctx = mock_rpc["settle_challenge"].call_args.kwargs["ctx"]
         assert len(ctx.remaining_accounts) == 2
+        # anchorpy requires solders.instruction.AccountMeta, not dicts.
+        # Prior to the Task 16 live-devnet fix this passed dicts and the
+        # transaction blew up at construction time on real devnet. Assert
+        # the fixed shape now.
         for ra in ctx.remaining_accounts:
-            assert ra["is_signer"] is False
-            assert ra["is_writable"] is False
+            assert ra.is_signer is False
+            assert ra.is_writable is False
 
 
 # -----------------------------------------------------------------------
