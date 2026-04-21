@@ -304,8 +304,11 @@ class TestImports:
         assert len(CompletionStatus) == 3
 
     def test_import_models(self):
+        # V1 foundation models + V2 P0 template/instance additions.
         from src.db.models import (
             Agent,
+            AgentInstance,
+            AgentTemplate,
             Base,
             Challenge,
             RankSnapshot,
@@ -315,12 +318,19 @@ class TestImports:
         )
 
         tables = list(Base.metadata.tables.keys())
-        assert len(tables) == 6
-        assert "agents" in tables
-        assert "runs" in tables
-        assert "run_events" in tables
-        assert "rank_snapshots" in tables
-        assert "verification_artifacts" in tables
+        # 6 V1 foundation tables + 2 V2 P0 tables.
+        assert len(tables) == 8
+        for expected in (
+            "agents",
+            "runs",
+            "run_events",
+            "rank_snapshots",
+            "verification_artifacts",
+            "challenges",
+            "agent_templates",
+            "agent_instances",
+        ):
+            assert expected in tables, f"Missing table: {expected}"
 
     def test_import_config(self):
         from src.config import (
