@@ -13,6 +13,7 @@ COPY pyproject.toml ./
 COPY src ./src
 COPY alembic.ini ./
 COPY alembic ./alembic
+COPY scripts ./scripts
 
 # Install deps
 RUN uv sync --no-dev

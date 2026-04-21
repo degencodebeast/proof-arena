@@ -61,6 +61,12 @@ class Agent(Base):
     moderation_status: Mapped[str] = mapped_column(
         String(20), default="active"
     )
+    # V2 P0: subject-typed reputation. `canonical_template` for V1-origin rows
+    # and flagship agents; `customized_instance` for V2 user-deployed instances.
+    # Backfilled to `canonical_template` on migration.
+    subject_type: Mapped[str] = mapped_column(
+        String(32), default="canonical_template"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -74,6 +80,7 @@ class Agent(Base):
     __table_args__ = (
         Index("idx_agents_privy_user_id", "privy_user_id"),
         Index("idx_agents_owner_wallet", "owner_wallet"),
+        Index("idx_agents_subject_type", "subject_type"),
     )
 
 
@@ -270,6 +277,11 @@ class RankSnapshot(Base):
     losses: Mapped[int] = mapped_column(Integer, default=0)
     completed_runs: Mapped[int] = mapped_column(Integer, default=0)
     invalid_runs: Mapped[int] = mapped_column(Integer, default=0)
+    # V2 P0: subject-typed reputation. Aggregate leaderboards MUST filter on
+    # this so canonical-template and customized-instance ranks never blend.
+    subject_type: Mapped[str] = mapped_column(
+        String(32), default="canonical_template"
+    )
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -280,6 +292,7 @@ class RankSnapshot(Base):
     __table_args__ = (
         Index("idx_rank_snapshots_agent_id", "agent_id"),
         Index("idx_rank_snapshots_computed_at", "computed_at"),
+        Index("idx_rank_snapshots_subject_type", "subject_type"),
     )
 
 
@@ -311,4 +324,106 @@ class VerificationArtifact(Base):
 
     __table_args__ = (
         Index("idx_verification_artifacts_run_id", "run_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# V2 P0: AgentTemplate (agent_templates table)
+# Off-chain only. No on-chain representation in V2 (see V2_DESIGN_SPEC §3
+# "Anchor state and instructions" — zero new Anchor accounts for V2).
+# ---------------------------------------------------------------------------
+
+
+class AgentTemplate(Base):
+    __tablename__ = "agent_templates"
+
+    template_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    template_key: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True
+    )
+    # Symbolic version label per VERSIONING.md (e.g. "swap_executor_v1").
+    template_version: Mapped[str] = mapped_column(String(32))
+    description: Mapped[str] = mapped_column(Text)
+    # JSON-encoded list of allowed envelope field names (the V2 5-field set).
+    allowed_fields_json: Mapped[str] = mapped_column(Text, default="[]")
+    default_config_json: Mapped[str] = mapped_column(Text, default="{}")
+    system_prompt: Mapped[str] = mapped_column(Text)
+    benchmark_subject_agent_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("agents.agent_id")
+    )
+    is_deployable: Mapped[bool] = mapped_column(
+        Integer, default=1
+    )  # use Integer for SQLite/Postgres portability; 0/1 semantics
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_agent_templates_template_key", "template_key"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# V2 P0: AgentInstance (agent_instances table)
+# Private by default. Consent artifact FK populated at deploy time (Phase B
+# orchestration). Provider-agnostic field names — the Privy-specific shape
+# is encoded inside `hosted_wallet_ref` / `wallet_provider` values, not in
+# the column names, so V0-VAL-1 outcomes can be recorded here without a
+# schema change.
+# ---------------------------------------------------------------------------
+
+
+class AgentInstance(Base):
+    __tablename__ = "agent_instances"
+
+    instance_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    template_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("agent_templates.template_id"), index=True
+    )
+    template_version_at_deploy: Mapped[str] = mapped_column(String(32))
+    # V2 auth-provider-specific owner identifier; shape depends on V0-VAL-1.
+    instance_owner_ref: Mapped[str] = mapped_column(String(128), index=True)
+    # Envelope-validated effective config.
+    effective_config_json: Mapped[str] = mapped_column(Text)
+    # FK into verification_artifacts. Populated at deploy time (Phase B).
+    # Nullable at the column level for now: P0 doesn't run deployments, and
+    # a NOT NULL constraint would make Phase B forced to two-phase commit
+    # the instance row and the consent artifact. Keeping nullable preserves
+    # atomic single-transaction inserts; Phase B enforces non-null in the
+    # service layer.
+    consent_artifact_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("verification_artifacts.artifact_id")
+    )
+    # Opaque runtime-specific handle. Never surfaced publicly.
+    runtime_handle_json: Mapped[Optional[str]] = mapped_column(Text)
+    # Chain-level address, provider-agnostic.
+    wallet_address: Mapped[Optional[str]] = mapped_column(String(44))
+    # Wallet-provider-specific identifier (e.g. a Privy wallet ID if
+    # V0-VAL-1 locks Privy). Schema stays provider-agnostic so a later
+    # swap doesn't require a migration.
+    hosted_wallet_ref: Mapped[Optional[str]] = mapped_column(String(128))
+    wallet_provider: Mapped[Optional[str]] = mapped_column(String(32))
+    # Trust label per V2 spec §3:
+    # `benchmark_compatible_customized_instance` | `external_custom_runtime`
+    trust_label: Mapped[str] = mapped_column(
+        String(64), default="benchmark_compatible_customized_instance"
+    )
+    # Lifecycle status: provisioning | live | paused | torn_down
+    status: Mapped[str] = mapped_column(String(20), default="provisioning")
+    # Self-referential nullable FK for instance versioning.
+    superseded_by_instance_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("agent_instances.instance_id")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_agent_instances_template_id", "template_id"),
+        Index("idx_agent_instances_owner", "instance_owner_ref"),
+        Index("idx_agent_instances_status", "status"),
     )

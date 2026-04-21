@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from anchorpy import Context, Idl, Program, Provider
+from solders.instruction import AccountMeta  # type: ignore[import-untyped]
 from solders.keypair import Keypair  # type: ignore[import-untyped]
 from solders.pubkey import Pubkey  # type: ignore[import-untyped]
 from solders.system_program import ID as SYS_PROGRAM_ID  # type: ignore[import-untyped]
@@ -195,16 +196,18 @@ class AgentArenaClient:
 
     async def settle_challenge(self, challenge_id: int, run_pdas: list[Pubkey]) -> str:
         challenge_pda, _ = self.derive_challenge_pda(challenge_id)
+        # anchorpy requires AccountMeta objects on remaining_accounts, not dicts.
+        remaining = [
+            AccountMeta(pubkey=p, is_signer=False, is_writable=False)
+            for p in run_pdas
+        ]
         tx = await self.program.rpc["settle_challenge"](
             ctx=Context(
                 accounts={
                     "challenge_account": challenge_pda,
                     "authority": self.provider.wallet.public_key,
                 },
-                remaining_accounts=[
-                    {"pubkey": p, "is_signer": False, "is_writable": False}
-                    for p in run_pdas
-                ],
+                remaining_accounts=remaining,
             ),
         )
         return str(tx)

@@ -46,11 +46,27 @@ services:
       # PROOF_ARENA_TREASURY_KEYPAIR_HOST before running docker compose.
       SOLANA_RPC_URL: "https://api.devnet.solana.com"
       SOLANA_CLUSTER: "devnet"
+      # Live devnet program — see AGENT_ARENA_TESTING_REPORT.md "Live Devnet Program Proof".
+      # Treasury keypair is both the program upgrade authority and the on-chain admin
+      # authority the Anchor program expects for create_challenge/settle/etc., so
+      # AUTHORITY_KEYPAIR_PATH reuses the treasury mount.
+      PROGRAM_ID: "GFnG5esZ77F4NL3CpSE9tLHG4ExghiQuBB83ZtGYuqcu"
+      AUTHORITY_KEYPAIR_PATH: "/run/secrets/proofarena-treasury-devnet.json"
       TREASURY_KEYPAIR_PATH: "/run/secrets/proofarena-treasury-devnet.json"
       USDC_MINT: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"
       OPENROUTER_API_KEY: ""
+      # Sourced from the local shell / .env at compose-time. Fails loudly
+      # with an empty value if the caller forgot to export them, which is
+      # exactly what we want — V2 hosted validation must not run against
+      # placeholders.
+      PRIVY_APP_ID: ${PRIVY_APP_ID}
+      PRIVY_APP_SECRET: ${PRIVY_APP_SECRET}
     volumes:
       - ${PROOF_ARENA_TREASURY_KEYPAIR_HOST:-/Users/degencodebeast/.config/solana/proofarena-treasury-devnet.json}:/run/secrets/proofarena-treasury-devnet.json:ro
+      # Bind-mount scripts for fast iteration on validation/demo scripts.
+      # Editing a script on the host takes effect inside the container
+      # without a rebuild or `docker compose cp`.
+      - ./backend/scripts:/app/scripts:ro
     ports:
       - "8000:8000"
     healthcheck:
@@ -68,7 +84,10 @@ services:
         condition: service_healthy
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
-      NEXT_PUBLIC_PRIVY_APP_ID: demo-privy-app-id-change-me
+      # Sourced from shell / .env at compose-time. Not required for Phase P0
+      # validation (backend-only flow) but wired so frontend user-Privy-login
+      # flows (later V2 work) get the same variable-interpolation contract.
+      NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID}
     ports:
       - "3000:3000"
 

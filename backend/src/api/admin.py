@@ -1,4 +1,11 @@
-"""Admin endpoints — challenge management. Requires admin auth."""
+"""Admin endpoints — challenge management. Requires admin auth.
+
+Fail-closed invariant: both endpoints resolve the program client via
+`get_program_client()` and inject it into ChallengeService. If configuration
+is incomplete (missing PROGRAM_ID, missing/invalid AUTHORITY_KEYPAIR_PATH),
+the factory returns None and ChallengeService._require_program() raises
+OnchainError — surfaced here as HTTP 502. No silent DB-only state transitions.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import PrivyUser, require_admin
+from src.chain import get_program_client
 from src.db.engine import get_db
 from src.db.schemas import ChallengeCreateRequest
 from src.services.challenge_service import ChallengeService, OnchainError
@@ -20,7 +28,7 @@ async def create_challenge(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new challenge. Admin only."""
-    svc = ChallengeService(db)
+    svc = ChallengeService(db, program_client=get_program_client())
     try:
         challenge = await svc.create_challenge(
             challenge_type=request.challenge_type,
@@ -46,7 +54,7 @@ async def start_challenge(
     db: AsyncSession = Depends(get_db),
 ):
     """Start a pending challenge. Admin only."""
-    svc = ChallengeService(db)
+    svc = ChallengeService(db, program_client=get_program_client())
     try:
         challenge = await svc.start_challenge(challenge_id)
         return {"challenge_id": challenge.challenge_id, "status": challenge.status}
