@@ -152,12 +152,20 @@ class TemplateService:
         self.db.add(template)
         try:
             await self.db.flush()
-        except IntegrityError:
-            # Do NOT rewrite to TemplateAlreadyExistsError — the pre-check
-            # above already handles duplicate template_key. Anything reaching
-            # here is a different integrity failure (e.g., bad FK) and must
-            # surface truthfully.
+        except IntegrityError as exc:
+            # Reconciliation: the pre-check above handles the single-writer
+            # duplicate case, but concurrent writers can both pass that check
+            # and race to the DB unique index. Re-read after rollback: if the
+            # row now exists, this failure is a duplicate-key collision and
+            # becomes TemplateAlreadyExistsError. Otherwise the failure was
+            # something else (bad FK, CHECK, future constraints) and must
+            # surface truthfully as IntegrityError.
             await self.db.rollback()
+            existing = await self.get_template_by_key(template_key)
+            if existing is not None:
+                raise TemplateAlreadyExistsError(
+                    f"template_key {template_key!r} already exists"
+                ) from exc
             raise
         return template
 

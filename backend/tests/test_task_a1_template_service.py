@@ -547,3 +547,58 @@ async def test_bad_benchmark_subject_agent_id_does_not_raise_already_exists(db):
     # caught that instead of IntegrityError.)
     # Guard against a regression where the exception class hierarchy changes:
     assert not issubclass(TemplateAlreadyExistsError, IntegrityError)
+
+
+async def test_flush_time_duplicate_race_maps_to_already_exists(db, monkeypatch):
+    """Concurrent-writer race: pre-check clean, flush collides, reconciliation
+    read finds the row → classify as TemplateAlreadyExistsError.
+
+    Simulates the sequence without real concurrency by monkeypatching
+    ``get_template_by_key`` to return None (pre-check) then the existing row
+    (reconciliation), and making ``db.flush`` raise IntegrityError. Verifies
+    both the domain error and that reconciliation actually ran.
+    """
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy.exc import IntegrityError
+
+    from src.db.models import AgentTemplate
+    from src.services.template_service import (
+        TemplateAlreadyExistsError,
+        TemplateService,
+    )
+
+    svc = TemplateService(db)
+
+    # The "row the concurrent writer inserted" — reconciliation finds it.
+    concurrent_row = AgentTemplate(
+        template_id=12345,
+        template_key="swap_executor_v1",
+        template_version="swap_executor_v1",
+        description="inserted by a concurrent writer",
+        allowed_fields_json="[]",
+        default_config_json="{}",
+        system_prompt="x",
+    )
+
+    # 1st call (pre-check) → None. 2nd call (reconciliation) → existing row.
+    get_mock = AsyncMock(side_effect=[None, concurrent_row])
+    monkeypatch.setattr(svc, "get_template_by_key", get_mock)
+
+    # flush raises IntegrityError (unique-index collision at the DB layer).
+    async def _flush_raises():
+        raise IntegrityError(
+            "UNIQUE constraint failed: agent_templates.template_key",
+            {},
+            Exception("unique"),
+        )
+
+    monkeypatch.setattr(svc.db, "flush", _flush_raises)
+    # rollback is called in the except block; stub it so the test stays pure.
+    monkeypatch.setattr(svc.db, "rollback", AsyncMock())
+
+    with pytest.raises(TemplateAlreadyExistsError):
+        await svc.register_template(**_valid_register_kwargs())
+
+    # Reconciliation must have actually happened (pre-check + post-flush read).
+    assert get_mock.await_count == 2
