@@ -1,0 +1,17 @@
+{
+  "name": "agent-rank-backend-scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node helper runtime for Task 11 (Orca swap-tx builder). Invoked as a subprocess by backend/src/services/swap_service.py.",
+  "scripts": {
+    "swap": "node orca_swap.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@orca-so/whirlpools": "^1.0.0",
+    "@solana/kit": "^2.0.0"
+  }
+}
