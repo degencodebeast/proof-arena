@@ -13,13 +13,16 @@ from __future__ import annotations
 import base64
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from solders.keypair import Keypair  # type: ignore[import-untyped]
 from solders.pubkey import Pubkey  # type: ignore[import-untyped]
 
 from src.config import settings
+
+if TYPE_CHECKING:
+    from src.services.privy_signing import PrivySigningService
 
 logger = logging.getLogger(__name__)
 
@@ -113,11 +116,15 @@ class WalletService:
         solana_cluster: str | None = None,
         treasury_keypair: Keypair | None = None,
         usdc_mint: Pubkey | None = None,
+        signing_service: "PrivySigningService | None" = None,
     ):
         self.app_id = privy_app_id or settings.PRIVY_APP_ID
         self.app_secret = privy_app_secret or settings.PRIVY_APP_SECRET
         self.rpc_url = solana_rpc_url or settings.SOLANA_RPC_URL
         self.cluster = solana_cluster or settings.SOLANA_CLUSTER
+        # V2 Task 9: PrivySigningService is required for create_hosted_wallet
+        # but optional for existing V1 callers that only use benchmark wallets.
+        self.signing_service = signing_service
 
         # Load treasury keypair from config if not injected
         if treasury_keypair is not None:
@@ -225,6 +232,88 @@ class WalletService:
                 f"Missing wallet fields: id={wallet_id}, address={address}",
                 "create_benchmark_wallet",
             )
+        return {"id": wallet_id, "address": address}
+
+    # -------------------------------------------------------------------
+    # V2 Task 9 — hosted agentic-wallet creation (policy-bound)
+    # -------------------------------------------------------------------
+
+    async def create_hosted_wallet(
+        self,
+        policy_id: str,
+        authorization_pubkey: str,
+        chain_type: str = "solana",
+        cluster: str = "devnet",
+    ) -> dict[str, str]:
+        """Create a policy-bound hosted Privy wallet for V2.
+
+        Matches the Phase 0-validated posture byte-equal: ``policy_ids`` as
+        an array (plural), ``owner={"public_key": <base64 DER P-256 SPKI>}``,
+        and a ``privy-authorization-signature`` header computed by the
+        injected ``PrivySigningService`` over the **full URL**
+        ``https://api.privy.io/v1/wallets``.
+
+        Layer 1 of the three-layer mainnet guard lives here — ``cluster``
+        MUST be ``"devnet"``; anything else raises ``ChainMismatchError``
+        before any network work.
+
+        Returns ``{"id": <wallet_id>, "address": <solana_pubkey>}``.
+
+        Raises:
+            ChainMismatchError: ``cluster != "devnet"``.
+            ValueError: ``signing_service`` was not injected.
+            PrivyAPIError: non-200 status, or 200 with missing id/address.
+        """
+        # Layer 1 mainnet guard — strict; only "devnet" passes.
+        # Primary: the service instance itself must be wired for devnet.
+        # Defense-in-depth: the method-level ``cluster`` arg must also be devnet.
+        if self.cluster != "devnet":
+            raise ChainMismatchError(self.rpc_url, self.cluster)
+        if cluster != "devnet":
+            raise ChainMismatchError(self.rpc_url, cluster)
+
+        if self.signing_service is None:
+            raise ValueError(
+                "PrivySigningService is required for create_hosted_wallet. "
+                "Inject one via WalletService(signing_service=...)."
+            )
+
+        body = {
+            "chain_type": chain_type,
+            "owner": {"public_key": authorization_pubkey},
+            "policy_ids": [policy_id],
+        }
+
+        signature = self.signing_service.sign_request(
+            method="POST",
+            url=f"{PRIVY_API_BASE}/wallets",
+            body=body,
+        )
+
+        resp = await self.client.post(
+            "/wallets",
+            json=body,
+            headers={"privy-authorization-signature": signature},
+        )
+        if resp.status_code != 200:
+            raise PrivyAPIError(
+                resp.status_code, resp.text, "create_hosted_wallet"
+            )
+        data = resp.json()
+        wallet_id = data.get("id")
+        address = data.get("address")
+        if not wallet_id or not address:
+            raise PrivyAPIError(
+                200,
+                f"Missing wallet fields: id={wallet_id}, address={address}",
+                "create_hosted_wallet",
+            )
+        logger.info(
+            "Created hosted wallet %s at %s with policy %s",
+            wallet_id,
+            address,
+            policy_id,
+        )
         return {"id": wallet_id, "address": address}
 
     # -------------------------------------------------------------------
