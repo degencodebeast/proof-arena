@@ -22,6 +22,11 @@ dependencies = [
     "agno>=2.5.0",
     "anthropic>=0.40.0",
     "openai>=1.0.0",
+    # V2 Task 8 — Privy authorization signature client.
+    # cryptography: ECDSA-P-256/SHA-256 signing + PEM key loading.
+    # jcs: RFC 8785 JSON canonicalization (matches Phase 0 reference byte-equal).
+    "cryptography>=42.0.0",
+    "jcs>=0.2.1",
 ]
 
 [project.optional-dependencies]

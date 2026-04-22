@@ -187,6 +187,23 @@ def test_constructor_raises_on_non_ec_key():
         PrivySigningService(private_key_pem=_rsa_pem(), app_id="app-id-x")
 
 
+def test_constructor_raises_on_empty_app_id():
+    """Direct construction must reject an empty app_id too.
+
+    Constructor is the deliberate failure boundary — callers that bypass
+    the factory still can't produce a service that signs payloads with
+    {"privy-app-id": ""}.
+    """
+    from src.services.privy_signing import (
+        InvalidPrivyAuthorizationKeyError,
+        PrivySigningService,
+    )
+
+    pem, _pub = _p256_pem()
+    with pytest.raises(InvalidPrivyAuthorizationKeyError):
+        PrivySigningService(private_key_pem=pem, app_id="")
+
+
 # ======================================================================
 # Canonicalization exactness
 # ======================================================================
