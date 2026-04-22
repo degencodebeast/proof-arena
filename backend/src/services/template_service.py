@@ -32,6 +32,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Agent, AgentInstance, AgentTemplate
+from src.integrity.trust_labels import TrustLabel
 from src.policy.engine import InstancePolicyEngine, _ALLOWED_ENVELOPE_FIELDS
 
 
@@ -47,12 +48,10 @@ class TemplateAlreadyExistsError(TemplateServiceError):
     """Raised when a template_key collides with an existing row."""
 
 
-# Locked flagship trust label (see plan §10 invariant 12 and cleanup-pass
-# resolution across tasks 20.1, 28, 33). Hardcoded as a string because the
-# shared enum artifact lives in the trust-label contract task (Task 6 /
-# A-5), which hasn't landed yet — the value here is the authoritative V2
-# string and will match that enum when it ships.
-_FLAGSHIP_TRUST_LABEL: str = "benchmarked_canonical_template"
+# Locked flagship trust label — sourced from the V2 trust-label contract
+# (Task 6 / A-5). See plan §10 invariant 12 and cleanup-pass resolution
+# across tasks 20.1, 28, 33.
+_FLAGSHIP_TRUST_LABEL: str = TrustLabel.BENCHMARKED_CANONICAL_TEMPLATE.value
 
 
 # Canonical V2 seed for the ``swap_executor_v1`` template. The system prompt

@@ -126,7 +126,11 @@ class PrivySigningService:
 
     def __init__(self, *, private_key_pem: str, app_id: str) -> None:
         # Constructor-time validation: app wiring fails fast when bad env
-        # reaches this boundary.
+        # reaches this boundary. Both the private key AND the app_id must
+        # be non-empty — otherwise a caller that bypasses the factory
+        # could produce a service that signs payloads with {"privy-app-id": ""}.
+        if not app_id:
+            raise InvalidPrivyAuthorizationKeyError("app_id is empty")
         self._private_key: EllipticCurvePrivateKey = _load_and_validate_key(
             private_key_pem
         )
