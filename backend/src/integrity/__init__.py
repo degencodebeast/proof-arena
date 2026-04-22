@@ -36,6 +36,9 @@ from src.integrity.action_validator import ActionValidator  # noqa: E402
 from src.integrity.completion_evaluator import CompletionEvaluator  # noqa: E402
 from src.integrity.run_auditor import RunAuditor  # noqa: E402
 from src.integrity.settlement_verifier import SettlementEligibility, SettlementVerifier  # noqa: E402
+from src.integrity.trust_labels import TrustLabel, trust_label_values  # noqa: E402
+from src.integrity.subject_types import SubjectType, subject_type_values  # noqa: E402
+from src.integrity.saga_statuses import SagaStatus, saga_status_values  # noqa: E402
 
 __all__ = [
     "ValidationResult",
@@ -45,4 +48,10 @@ __all__ = [
     "RunAuditor",
     "SettlementVerifier",
     "SettlementEligibility",
+    "TrustLabel",
+    "trust_label_values",
+    "SubjectType",
+    "subject_type_values",
+    "SagaStatus",
+    "saga_status_values",
 ]

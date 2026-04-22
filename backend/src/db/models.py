@@ -55,6 +55,79 @@ _RUN_INVALID_REASON_CHECK_SQL = (
     + ")"
 )
 
+# V2 A-5 — CHECK-list for agent_instances.trust_label.
+#
+# The authoritative enum lives in src/integrity/trust_labels.py
+# (``TrustLabel``). We do NOT import it here for the same reason as
+# _RUN_INVALID_REASON_VALUES above: the integrity package's ``__init__``
+# eagerly imports modules that back-reference ``src.db.models``. The A-5
+# test ``test_models_trust_label_tuple_matches_enum`` asserts this tuple
+# stays byte-equal to the enum; any drift fails fast.
+_TRUST_LABEL_VALUES: tuple[str, ...] = (
+    "benchmarked_canonical_template",
+    "benchmark_compatible_customized_instance",
+    "external_custom_runtime",
+)
+
+_TRUST_LABEL_CHECK_SQL = (
+    "trust_label IN ("
+    + ", ".join(f"'{v}'" for v in _TRUST_LABEL_VALUES)
+    + ")"
+)
+
+# V2 A-4 — CHECK-list for agents.subject_type and rank_snapshots.subject_type.
+#
+# The authoritative enum lives in src/integrity/subject_types.py
+# (``SubjectType``). Duplicated here to avoid the circular import with
+# ``src.integrity``; the A-4 drift-guard test
+# ``test_models_subject_type_tuple_matches_enum`` asserts byte-equality.
+_SUBJECT_TYPE_VALUES: tuple[str, ...] = (
+    "canonical_template",
+    "customized_instance",
+)
+
+_SUBJECT_TYPE_CHECK_SQL = (
+    "subject_type IN ("
+    + ", ".join(f"'{v}'" for v in _SUBJECT_TYPE_VALUES)
+    + ")"
+)
+
+# V2 Task 2 — CHECK-lists for agent_instances.status and
+# agent_instances.last_failure_reason.
+#
+# Authoritative enums live at:
+#   - src/integrity/saga_statuses.py  (``SagaStatus``)
+#   - src/integrity/failure_taxonomy.py  (``SagaFailureReason``)
+# Duplicated here to avoid circular import via the integrity package init.
+# Drift-guard tests (task_2) hold both tuples byte-equal to their enums.
+_SAGA_STATUS_VALUES: tuple[str, ...] = (
+    "provisioning",
+    "wallet_created_runtime_failed",
+    "runtime_live_consent_failed",
+    "provisioning_failed",
+    "live",
+    "paused",
+    "torn_down",
+)
+
+_SAGA_STATUS_CHECK_SQL = (
+    "status IN ("
+    + ", ".join(f"'{v}'" for v in _SAGA_STATUS_VALUES)
+    + ")"
+)
+
+_SAGA_FAILURE_REASON_VALUES: tuple[str, ...] = (
+    "provisioning_failed",
+    "wallet_created_runtime_failed",
+    "runtime_live_consent_failed",
+)
+
+_SAGA_FAILURE_REASON_CHECK_SQL = (
+    "last_failure_reason IS NULL OR last_failure_reason IN ("
+    + ", ".join(f"'{v}'" for v in _SAGA_FAILURE_REASON_VALUES)
+    + ")"
+)
+
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
@@ -113,6 +186,11 @@ class Agent(Base):
         Index("idx_agents_privy_user_id", "privy_user_id"),
         Index("idx_agents_owner_wallet", "owner_wallet"),
         Index("idx_agents_subject_type", "subject_type"),
+        # V2 A-4: subject_type must be one of the two locked values.
+        CheckConstraint(
+            _SUBJECT_TYPE_CHECK_SQL,
+            name="ck_agents_subject_type",
+        ),
     )
 
 
@@ -330,6 +408,12 @@ class RankSnapshot(Base):
         Index("idx_rank_snapshots_agent_id", "agent_id"),
         Index("idx_rank_snapshots_computed_at", "computed_at"),
         Index("idx_rank_snapshots_subject_type", "subject_type"),
+        # V2 A-4: subject_type must be one of the two locked values —
+        # same contract as agents.subject_type.
+        CheckConstraint(
+            _SUBJECT_TYPE_CHECK_SQL,
+            name="ck_rank_snapshots_subject_type",
+        ),
     )
 
 
@@ -444,13 +528,27 @@ class AgentInstance(Base):
     # swap doesn't require a migration.
     hosted_wallet_ref: Mapped[Optional[str]] = mapped_column(String(128))
     wallet_provider: Mapped[Optional[str]] = mapped_column(String(32))
-    # Trust label per V2 spec §3:
-    # `benchmark_compatible_customized_instance` | `external_custom_runtime`
+    # Trust label per V2 spec §3 and the Task 6 / A-5 contract
+    # (see src/integrity/trust_labels.py + ck_agent_instances_trust_label):
+    # `benchmarked_canonical_template` (flagship instance only)
+    #   | `benchmark_compatible_customized_instance` (default for user deploys)
+    #   | `external_custom_runtime` (reserved in V2; no code path assigns it)
     trust_label: Mapped[str] = mapped_column(
         String(64), default="benchmark_compatible_customized_instance"
     )
-    # Lifecycle status: provisioning | live | paused | torn_down
-    status: Mapped[str] = mapped_column(String(20), default="provisioning")
+    # V2 Task 2: saga lifecycle state machine (7 states).
+    #   provisioning  -> (wallet_created_runtime_failed | runtime_live_consent_failed
+    #                     | provisioning_failed | live)
+    #   live          -> (paused | torn_down)
+    #   paused        -> (live | torn_down)
+    #   torn_down     -> (terminal)
+    # Column widened from String(20) to String(32) to fit the two saga-failure
+    # values (both > 20 chars). CHECK constraint pinned by _SAGA_STATUS_VALUES.
+    status: Mapped[str] = mapped_column(String(32), default="provisioning")
+    # V2 Task 2: operator-surface failure reason. Populated only when status
+    # is one of the three *_failed saga states. Allowed values come from
+    # SagaFailureReason in src/integrity/failure_taxonomy.py.
+    last_failure_reason: Mapped[Optional[str]] = mapped_column(String(64))
     # Self-referential nullable FK for instance versioning.
     superseded_by_instance_id: Mapped[Optional[int]] = mapped_column(
         BigInteger, ForeignKey("agent_instances.instance_id")
@@ -463,4 +561,23 @@ class AgentInstance(Base):
         Index("idx_agent_instances_template_id", "template_id"),
         Index("idx_agent_instances_owner", "instance_owner_ref"),
         Index("idx_agent_instances_status", "status"),
+        Index(
+            "idx_agent_instances_last_failure_reason",
+            "last_failure_reason",
+        ),
+        # V2 A-5: trust_label must be one of the three locked values.
+        CheckConstraint(
+            _TRUST_LABEL_CHECK_SQL,
+            name="ck_agent_instances_trust_label",
+        ),
+        # V2 Task 2: status must be one of the seven saga-state values.
+        CheckConstraint(
+            _SAGA_STATUS_CHECK_SQL,
+            name="ck_agent_instances_status",
+        ),
+        # V2 Task 2: last_failure_reason is NULL or a SagaFailureReason value.
+        CheckConstraint(
+            _SAGA_FAILURE_REASON_CHECK_SQL,
+            name="ck_agent_instances_last_failure_reason",
+        ),
     )

@@ -51,6 +51,24 @@ class Settings(BaseSettings):
     # Privy
     PRIVY_APP_ID: str = ""
     PRIVY_APP_SECRET: str = ""
+    # V2 Task 8 — authorization private key for the Privy agentic-wallet
+    # posture. Format: PEM-encoded PKCS8 P-256 (SECP256R1). Single-line
+    # .env values may use literal `\n` escapes — the privy_signing service
+    # normalizes them on load. No other key formats are accepted.
+    PRIVY_AUTHORIZATION_PRIVATE_KEY: str = ""
+
+    # V2 Task 10 — optional override path for the wallet-policy allowlist
+    # profile JSON file. Empty (default) → use the Phase-0-locked
+    # ORCA_DEVNET_ALLOWLIST from src.policy.allowlists. Set this only for
+    # test substitution or a future non-default profile.
+    ALLOWLIST_PROFILE_PATH: str = ""
+
+    # V2 Task 11 — Orca Whirlpools devnet hosted-swap configuration.
+    # Evidence: PHASE_0_CLOSEOUT_NOTE.md V0-VAL-3. Empty defaults keep
+    # V1 paths undisturbed; ops supplies real values via .env for V2.
+    V2_HOSTED_SWAP_POOL: str = ""   # e.g. 3KBZiL2g8C7tiJ32hTv5v3KM7aK9htpqTw4cTXz1HvPt
+    V2_HOSTED_USDC_MINT: str = ""   # Orca devUSDC: BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k
+    ORCA_SWAP_SCRIPT_PATH: str = "scripts/orca_swap.js"
 
     # OpenRouter (optional — for openrouter LLM provider)
     OPENROUTER_API_KEY: str = ""

@@ -7,7 +7,9 @@ Responsibilities:
 - `build_wallet_policy(spec, allowlist_profile, chain)` — produce a
   provider-agnostic wallet-policy dict. The actual Solana-specific allowlist
   shape comes from Phase 0 validation (V0-VAL-2) and is injected. This
-  module does NOT hardcode Jupiter / ComputeBudget / SPL Token program IDs.
+  module does NOT hardcode Orca / SPL Token / ComputeBudget program IDs;
+  those live in `src.policy.allowlists.ORCA_DEVNET_ALLOWLIST` and are
+  passed in by the caller.
 - `record_consent(acknowledgments)` — produce a deterministic
   `ConsentRecord` with canonical JSON + sha256 so the deploy-time
   orchestration (Phase B) can anchor it via a VerificationArtifact.
@@ -18,6 +20,7 @@ rely on this keeping the module pure.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
@@ -174,10 +177,29 @@ class InstancePolicyEngine:
         `allowlist_profile` is the output of V0-VAL-2 — the observed
         Solana instruction/program footprint, captured as a dict the
         policy engine can consume without knowing which Solana programs
-        are involved.
+        are involved. The default for V2 is ``ORCA_DEVNET_ALLOWLIST``
+        from ``src.policy.allowlists`` but the engine does not import
+        it; profile selection is the caller's job.
 
         `chain` MUST be "devnet" in V2. Per the plan invariant, no hosted
         flow may target mainnet; refuse early.
+
+        Output shape (provider-agnostic):
+
+        - ``chain``: echo of the chain argument
+        - ``envelope``: the validated 5-field customization envelope
+        - ``allowlist_profile``: defensive copy of the caller's profile
+        - ``transfer_cap``: ``{"instruction": "TransferChecked",
+          "max_amount": spec["max_position_size"]}`` — enforced at the
+          SPL TokenProgram layer once the wallet-service translates this
+          dict into provider-specific rule payloads
+        - ``default_action``: ``"DENY"`` — deny-by-default
+        - ``runner_enforced``: list of invariants enforced by the runner
+          layer (not by wallet policy)
+
+        Provider-specific serialization (e.g. Privy's
+        ``{rules: [...], default_action}`` HTTP shape) lives at the
+        wallet-service translation boundary — NOT in this engine.
         """
         if chain != "devnet":
             raise PolicyEngineError(
@@ -202,12 +224,19 @@ class InstancePolicyEngine:
                 "max_iterations": spec["max_iterations"],
                 "max_runtime_seconds": spec["max_runtime_seconds"],
             },
-            "allowlist_profile": dict(allowlist_profile),
+            "allowlist_profile": copy.deepcopy(allowlist_profile),
+            "transfer_cap": {
+                "instruction": "TransferChecked",
+                "max_amount": spec["max_position_size"],
+            },
+            "default_action": "DENY",
             # Explicit marker so operators reviewing the policy can see at a
-            # glance what's provider-enforced vs runner-enforced.
+            # glance what's provider-enforced vs runner-enforced. Slippage
+            # is runner-enforced per V0-VAL-4 (Whirlpool swap slippage lives
+            # in custom calldata Privy's policy engine cannot decode).
             "runner_enforced": [
                 "quote_freshness",
-                "slippage_upper_bound_per_swap",  # V0-VAL-4 may move this to policy layer
+                "slippage_upper_bound_per_swap",
                 "iteration_budget",
                 "time_budget",
             ],

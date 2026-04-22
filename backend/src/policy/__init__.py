@@ -7,6 +7,10 @@ deployment consent as a hashable record suitable for anchoring in a
 VerificationArtifact.
 """
 
+from src.policy.allowlists import (
+    ORCA_DEVNET_ALLOWLIST,
+    load_allowlist_profile,
+)
 from src.policy.engine import (
     ConsentRecord,
     DeploymentConsent,
@@ -19,6 +23,8 @@ __all__ = [
     "ConsentRecord",
     "DeploymentConsent",
     "InstancePolicyEngine",
+    "ORCA_DEVNET_ALLOWLIST",
     "PolicyEngineError",
     "ValidationResult",
+    "load_allowlist_profile",
 ]
