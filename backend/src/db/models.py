@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -186,6 +187,20 @@ class Agent(Base):
         Index("idx_agents_privy_user_id", "privy_user_id"),
         Index("idx_agents_owner_wallet", "owner_wallet"),
         Index("idx_agents_subject_type", "subject_type"),
+        # V2 Task 15: partial unique index on privy_user_id scoped to
+        # customized_instance rows. Enforces DB-level dedupe of the
+        # synthetic `instance:{id}` key used by ChallengeService's
+        # instance→agent mapping, while preserving V1's N-per-user
+        # semantics for canonical_template rows (see strategy_service
+        # get_by_owner / get_active_count). Matches Alembic migration
+        # a1b2c3d4e5f6.
+        Index(
+            "uq_agents_privy_user_id_customized_instance",
+            "privy_user_id",
+            unique=True,
+            sqlite_where=text("subject_type = 'customized_instance'"),
+            postgresql_where=text("subject_type = 'customized_instance'"),
+        ),
         # V2 A-4: subject_type must be one of the two locked values.
         CheckConstraint(
             _SUBJECT_TYPE_CHECK_SQL,
@@ -428,8 +443,12 @@ class VerificationArtifact(Base):
     artifact_id: Mapped[int] = mapped_column(
         BigInteger, primary_key=True, autoincrement=True
     )
-    run_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("runs.run_id"), index=True
+    # Nullable for V2 deployment-consent artifacts (no run exists at deploy
+    # time). V1 run-bound artifacts still populate this with a valid
+    # runs.run_id; the FK itself is unchanged. See Alembic migration
+    # f8b2a1c3d4e5 (Task 13).
+    run_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("runs.run_id"), index=True, nullable=True
     )
     artifact_type: Mapped[str] = mapped_column(String(32))
     uri_or_ref: Mapped[str] = mapped_column(Text)
@@ -438,8 +457,9 @@ class VerificationArtifact(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    # Relationships
-    run: Mapped["Run"] = relationship(
+    # Relationships — Optional[Run] because V2 deploy-consent artifacts
+    # have NULL run_id (see Task 13).
+    run: Mapped[Optional["Run"]] = relationship(
         back_populates="verification_artifacts"
     )
 
