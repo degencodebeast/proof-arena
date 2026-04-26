@@ -7,16 +7,18 @@ DB-only mode is allowed ONLY for queries, not for state transitions.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.chain.program_client import AgentArenaClient
 from src.config import settings
-from src.db.models import Agent, Challenge, Run
+from src.db.models import Agent, AgentInstance, AgentTemplate, Challenge, Run
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,21 @@ class OnchainError(Exception):
         self.operation = operation
         self.detail = detail
         super().__init__(f"On-chain {operation} failed: {detail}")
+
+
+class InvalidInstanceStateError(Exception):
+    """Raised when a hosted instance is not eligible for benchmark-run creation.
+
+    Covers three cases (see Task 15 edge-case spec §4):
+      - instance does not exist
+      - ``instance.status != 'live'``
+      - ``instance.superseded_by_instance_id is not None``
+
+    This error is local to challenge/run creation. It deliberately does
+    NOT overload the Task 2 saga taxonomy — saga failure reasons
+    (``provisioning_failed`` etc.) describe deploy-saga state, not
+    benchmark-eligibility state.
+    """
 
 
 class ChallengeService:
@@ -254,3 +271,181 @@ class ChallengeService:
             .order_by(Run.agent_id)
         )
         return list(result.scalars().all())
+
+    # -------------------------------------------------------------------
+    # V2 Task 15 — hosted-instance benchmark run creation
+    # -------------------------------------------------------------------
+
+    async def create_run_for_instance(
+        self, instance_id: int, challenge_config: dict
+    ) -> Run:
+        """Create a benchmark run for a live hosted ``AgentInstance``.
+
+        V2 hosted-instance path. Contract (see ``.taskmaster/docs/task15-edge-case-spec.md``):
+
+        - ``challenge_config`` must contain ``challenge_id``.
+        - Instance must exist, be ``live``, and not be superseded.
+        - Creates (or reuses) an ``Agent`` row with
+          ``subject_type="customized_instance"`` for run attachment.
+        - Emits a ``Run`` with ``provider_type="hosted_instance"``,
+          wallet refs inherited from the instance, and
+          ``onchain_address=None`` — V2 hosted runs do NOT create an
+          on-chain RunAccount (V2 plan §3: zero new Anchor work).
+
+        Creates the ``Run`` row only. The returned run is ``status="pending"``.
+        Execution wiring — constructing ``HostedInstanceProvider(runtime,
+        handle)`` from ``instance.runtime_handle_json`` and invoking
+        ``runner_service.execute_run(run, challenge, provider)`` — is a
+        downstream orchestration concern owned by the caller: the flagship
+        cron (Task 19 / plan D-2) for scheduled runs and the instance
+        dashboard "Benchmark-now" action (Task 17 / plan E-4) for
+        user-triggered runs. ``runner_service.execute_run`` currently
+        takes a caller-supplied ``provider`` argument — there is no
+        provider-type-based dispatcher in V2, and Task 15 does not
+        introduce one.
+
+        Does NOT attach reputation to the canonical template.
+        """
+        challenge_id = challenge_config.get("challenge_id")
+        if challenge_id is None:
+            raise ValueError(
+                "challenge_config missing 'challenge_id'"
+            )
+
+        instance = await self._get_instance(instance_id)
+
+        challenge = await self.get_by_id(challenge_id)
+        if challenge is None:
+            raise ValueError(f"Challenge {challenge_id} not found")
+
+        agent = await self._get_or_create_instance_agent(instance)
+
+        starting_value = int(
+            json.loads(challenge.config_json).get("starting_usdc", 0)
+        )
+
+        run = Run(
+            challenge_id=challenge.challenge_id,
+            agent_id=agent.agent_id,
+            provider_type="hosted_instance",
+            benchmark_wallet_address=instance.wallet_address,
+            benchmark_wallet_ref=instance.hosted_wallet_ref,
+            status="pending",
+            starting_value=starting_value,
+            app_version=settings.APP_VERSION,
+            challenge_type=challenge.challenge_type,
+            challenge_version=challenge.challenge_version,
+            action_schema_version=settings.ACTION_SCHEMA_VERSION,
+            evidence_schema_version=settings.EVIDENCE_SCHEMA_VERSION,
+        )
+        self.db.add(run)
+        try:
+            await self.db.commit()
+        except IntegrityError as exc:
+            await self.db.rollback()
+            raise ValueError(
+                f"Run for (challenge_id={challenge_id}, instance_id={instance_id}) "
+                f"already exists"
+            ) from exc
+        return run
+
+    async def _get_instance(self, instance_id: int) -> AgentInstance:
+        """Resolve + validate an instance for benchmark-run creation.
+
+        Raises ``InvalidInstanceStateError`` on: missing, non-``live``
+        status, or superseded (``superseded_by_instance_id`` set).
+        """
+        instance = await self.db.get(AgentInstance, instance_id)
+        if instance is None:
+            raise InvalidInstanceStateError(
+                f"Instance {instance_id} not found"
+            )
+        if instance.status != "live":
+            raise InvalidInstanceStateError(
+                f"Cannot benchmark instance {instance_id} in status "
+                f"{instance.status!r}; only 'live' instances are eligible"
+            )
+        if instance.superseded_by_instance_id is not None:
+            raise InvalidInstanceStateError(
+                f"Instance {instance_id} has been superseded by "
+                f"{instance.superseded_by_instance_id}"
+            )
+        return instance
+
+    async def _get_or_create_instance_agent(
+        self, instance: AgentInstance
+    ) -> Agent:
+        """Resolve the ``Agent`` row for a hosted instance (or create it).
+
+        Uses ``privy_user_id = 'instance:{instance_id}'`` as a stable
+        synthetic key so a second call for the same instance reuses the
+        existing row (idempotent). The created row carries
+        ``subject_type='customized_instance'`` (A-4 CHECK) and
+        ``provider_type='hosted_instance'`` so downstream readers can
+        distinguish it from canonical-template agents.
+
+        Concurrency: a partial unique index
+        (``uq_agents_privy_user_id_customized_instance``, Alembic
+        ``a1b2c3d4e5f6``) enforces the synthetic key uniqueness at the
+        DB level. The insert is wrapped in a savepoint so a lost race
+        (``IntegrityError``) does NOT poison the outer transaction —
+        we roll back the savepoint, reload the committed row, and
+        return it.
+        """
+        synthetic_key = f"instance:{instance.instance_id}"
+        result = await self.db.execute(
+            select(Agent).where(
+                Agent.privy_user_id == synthetic_key,
+                Agent.subject_type == "customized_instance",
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+        # Pull the template's system_prompt for lineage; templates are
+        # required (FK NOT NULL on agent_instances.template_id) so this
+        # lookup always succeeds.
+        template = await self.db.get(AgentTemplate, instance.template_id)
+        system_prompt = template.system_prompt if template is not None else ""
+        template_key = template.template_key if template is not None else "unknown"
+
+        config_json = instance.effective_config_json or "{}"
+        submission_hash = hashlib.sha256(
+            f"instance:{instance.instance_id}:{config_json}".encode("utf-8")
+        ).hexdigest()
+
+        # owner_wallet must be NOT NULL; the instance always has a wallet
+        # by the time it reaches 'live' (Task 13 saga step 3 creates it
+        # before the row is persisted).
+        owner_wallet = instance.wallet_address or ""
+
+        agent = Agent(
+            privy_user_id=synthetic_key,
+            owner_wallet=owner_wallet,
+            display_name=f"instance:{template_key}:{instance.instance_id}"[:64],
+            submission_type="hosted_instance",
+            submission_hash=submission_hash,
+            system_prompt=system_prompt,
+            config_json=config_json,
+            metadata_ref=f"agent_instances/{instance.instance_id}",
+            provider_type="hosted_instance",
+            provider_config_json=instance.runtime_handle_json,
+            subject_type="customized_instance",
+        )
+        try:
+            async with self.db.begin_nested():
+                self.db.add(agent)
+                await self.db.flush()
+        except IntegrityError:
+            # A concurrent caller won the race against the partial unique
+            # index. Savepoint already rolled back; reload the committed
+            # winner and return it.
+            result = await self.db.execute(
+                select(Agent).where(
+                    Agent.privy_user_id == synthetic_key,
+                    Agent.subject_type == "customized_instance",
+                )
+            )
+            agent = result.scalar_one()
+        return agent
