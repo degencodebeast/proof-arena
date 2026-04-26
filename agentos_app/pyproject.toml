@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "fastapi>=0.110",
+    "psycopg[binary]>=3.1",
     # Required transitively by `src.services.template_service` and
     # the `InstancePolicyEngine` it constructs at module load.
     "sqlalchemy>=2.0",

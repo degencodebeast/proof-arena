@@ -39,6 +39,7 @@ def test_config_defaults():
     assert s.canonical_agent_id == "swap_executor_v1"
     assert s.host == "0.0.0.0"
     assert s.port == 7000
+    assert s.database_url == ""
     assert s.llm_provider == "openrouter"
     assert s.llm_model == "openai/gpt-4o-mini"
 
@@ -375,6 +376,41 @@ def test_host_port_env_override():
     )
     assert s.host == "127.0.0.1"
     assert s.port == 9000
+
+
+def test_database_url_env_override():
+    """T12c — `AGENTOS_DATABASE_URL` binds for live session storage."""
+    s = _settings_from_env(
+        {
+            "AGENTOS_DATABASE_URL": (
+                "postgresql+psycopg://proofarena:secret@postgres:5432/proof_arena"
+            )
+        }
+    )
+    assert (
+        s.database_url
+        == "postgresql+psycopg://proofarena:secret@postgres:5432/proof_arena"
+    )
+
+
+def test_agentos_db_factory_uses_postgres_session_table():
+    """T12d — live AgentOS sessions use a Postgres-backed Agno DB."""
+    from agentos_app.app import _build_db
+    from agentos_app.config import AgentOSAppSettings
+
+    settings = AgentOSAppSettings(
+        database_url=(
+            "postgresql+psycopg://proofarena:secret@postgres:5432/proof_arena"
+        ),
+        _env_file=None,
+    )  # type: ignore[call-arg]
+
+    db = _build_db(settings)
+    assert db is not None
+    assert (
+        getattr(db, "session_table_name", None)
+        == "proof_arena_agentos_sessions"
+    )
 
 
 def test_dockerfile_honors_host_port_env():

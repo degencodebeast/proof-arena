@@ -51,12 +51,20 @@ asserts object identity.
 | `AGENTOS_CANONICAL_AGENT_ID` (pun: same name) | agentos_app | `"swap_executor_v1"` | Agent id declared at startup |
 | `AGENTOS_HOST` | agentos_app | `0.0.0.0` | Bind (interpolated by Dockerfile CMD) |
 | `AGENTOS_PORT` | agentos_app | `7000` | Bind (interpolated by Dockerfile CMD) |
+| `AGENTOS_DATABASE_URL` | agentos_app | `""` | Agno session DB; use `postgresql+psycopg://...` in Coolify |
 | `AGENTOS_LLM_PROVIDER` | agentos_app | `"openrouter"` | Model vendor |
 | `AGENTOS_LLM_MODEL` | agentos_app | `"openai/gpt-4o-mini"` | Model id |
 | `OPENROUTER_API_KEY` | agentos_app | `""` | Vendor key (SDK-canonical name, NOT prefixed) |
 | `ANTHROPIC_API_KEY` | agentos_app | `""` | Vendor key (SDK-canonical name, NOT prefixed) |
 | `OPENAI_API_KEY` | agentos_app | `""` | Vendor key (SDK-canonical name, NOT prefixed) |
 | `GOOGLE_API_KEY` | agentos_app | `""` | Vendor key (SDK-canonical name, NOT prefixed) |
+
+Live Coolify deploys should set `AGENTOS_DATABASE_URL` so
+`AgentOSClient.create_session(...)` works. The backend's `DATABASE_URL`
+uses `postgresql+asyncpg://...`; AgentOS uses Agno's Postgres adapter,
+so use the same Postgres credentials with `postgresql+psycopg://...`.
+Agno creates the `proof_arena_agentos_sessions` table automatically if
+it does not exist.
 
 The two `AGENTOS_CANONICAL_AGENT_ID` reads MUST agree. The smoke
 script (`scripts/smoke.py`) catches drift.
@@ -105,6 +113,8 @@ Image bundles `backend/src/` so the SoT import resolves. See
   and the `openai` provider. Agno's openrouter module imports
   `openai.types.chat` at module load time; without this the AgentOS
   process crashes at startup.
+- `psycopg[binary]>=3.1` — required by Agno's `PostgresDb` session
+  store used by the live `/sessions` API.
 - `anthropic>=0.40.0` — Claude provider.
 - `google-genai>=1.0.0` — Gemini provider.
 

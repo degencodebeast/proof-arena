@@ -11,6 +11,8 @@ V2 hosted runtime.
 
 from __future__ import annotations
 
+from typing import Any
+
 from agno.agent import Agent
 
 from agentos_app.canonical_template_contract import (
@@ -24,6 +26,7 @@ SUPPORTED_PROVIDERS = ("openrouter", "anthropic", "openai", "google")
 
 def build_canonical_swap_executor_agent(
     settings: AgentOSAppSettings | None = None,
+    db: Any | None = None,
 ) -> Agent:
     """Return the pre-registered V2 canonical agent.
 
@@ -43,6 +46,7 @@ def build_canonical_swap_executor_agent(
         name=settings.canonical_agent_id,
         instructions=canonical_system_prompt(),
         model=_create_model(settings),
+        db=db,
         tools=[],
         markdown=False,
     )

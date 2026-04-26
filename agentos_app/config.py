@@ -55,6 +55,13 @@ class AgentOSAppSettings(BaseSettings):
     host: str = Field(default="0.0.0.0", validation_alias="AGENTOS_HOST")
     port: int = Field(default=7000, validation_alias="AGENTOS_PORT")
 
+    # ----- Session storage ---------------------------------------------
+    # Agno's /sessions API needs a database-backed session store for the
+    # live AgentOS deployment. Backend DATABASE_URL uses asyncpg; this
+    # AgentOS URL should use psycopg, e.g.
+    # postgresql+psycopg://user:pass@postgres:5432/proof_arena.
+    database_url: str = Field(default="", validation_alias="AGENTOS_DATABASE_URL")
+
     # ----- Model selection ---------------------------------------------
     # OpenRouter is the Phase-0 LIVE-GATE-validated combo (see
     # `task12-agentos-contract-note.md` §1 LIVE GATE). Operator may
