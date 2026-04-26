@@ -22,6 +22,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import uuid
+from datetime import datetime, timezone
+
+from src.config import settings
+from src.services.jupiter_service import QuoteOption
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +61,7 @@ class OrcaSwapService:
         script_path: str = "scripts/orca_swap.js",
         timeout_secs: int = _SUBPROCESS_TIMEOUT_SECS_DEFAULT,
         pool_address: str = "",
+        max_age_secs: int | None = None,
     ) -> None:
         if cluster != "devnet":
             raise RuntimeError(
@@ -70,6 +76,12 @@ class OrcaSwapService:
         # in from `settings.V2_HOSTED_SWAP_POOL`; leaving it empty is a
         # configuration error surfaced at swap time as InvalidPoolError.
         self.pool_address = pool_address
+        # Task 37 — quote cache + age-bound matching the Jupiter surface.
+        # `get_quotes` populates this dict; `prepare_swap_transaction`
+        # reads params back out so the Node helper can be invoked with
+        # the original input_mint / output_mint / amount.
+        self.max_age_secs: int = max_age_secs or settings.QUOTE_MAX_AGE_SECS
+        self._quote_cache: dict[str, QuoteOption] = {}
 
     async def prepare_swap_tx(
         self,
@@ -149,6 +161,89 @@ class OrcaSwapService:
             raise OrcaSwapError(
                 f"orca_swap helper returned malformed base64 stdout: {e}"
             ) from e
+
+
+    # -----------------------------------------------------------------
+    # SwapServiceProtocol surface (Task 37)
+    # -----------------------------------------------------------------
+
+    async def get_quotes(
+        self,
+        input_mint: str,
+        output_mint: str,
+        amount: int,
+        slippage_bps: int = 50,
+    ) -> list[QuoteOption]:
+        """Build + cache a ``QuoteOption`` for the mint pair.
+
+        Does **not** invoke the Node subprocess — the Orca helper requires
+        a ``wallet_pubkey`` which is only known at
+        ``prepare_swap_transaction`` time. ``out_amount`` is recorded as
+        ``0`` (documented lossy placeholder; the real output is resolved
+        post-execution via balance deltas).
+        """
+        quote_id = str(uuid.uuid4())
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        quote = QuoteOption(
+            quote_id=quote_id,
+            input_mint=input_mint,
+            output_mint=output_mint,
+            in_amount=amount,
+            out_amount=0,
+            slippage_bps=slippage_bps,
+            fetched_at=fetched_at,
+            route_data={
+                "input_mint": input_mint,
+                "output_mint": output_mint,
+                "amount": amount,
+                "slippage_bps": slippage_bps,
+            },
+        )
+        self._quote_cache[quote_id] = quote
+        return [quote]
+
+    def get_cached_quote(self, quote_id: str) -> QuoteOption | None:
+        """Dict-like lookup. Returns None for unknown ids."""
+        return self._quote_cache.get(quote_id)
+
+    def is_quote_fresh(
+        self, quote_id: str, max_age_secs: int | None = None
+    ) -> bool:
+        """Age check against ``QuoteOption.fetched_at``."""
+        quote = self._quote_cache.get(quote_id)
+        if quote is None:
+            return False
+        max_age = max_age_secs or self.max_age_secs
+        fetched = datetime.fromisoformat(quote.fetched_at)
+        age = (datetime.now(timezone.utc) - fetched).total_seconds()
+        return age < max_age
+
+    async def prepare_swap_transaction(
+        self,
+        quote_id: str,
+        user_public_key: str,
+        max_slippage_bps: int | None = None,
+    ) -> bytes:
+        """Build unsigned versioned-transaction bytes for the cached quote.
+
+        Delegates to ``prepare_swap_tx`` (which runs the Node helper).
+        Overrides ``slippage_bps`` when ``max_slippage_bps`` is provided;
+        otherwise falls back to the slippage captured at
+        ``get_quotes`` time.
+        """
+        quote = self._quote_cache.get(quote_id)
+        if quote is None:
+            raise OrcaSwapError(
+                f"unknown quote_id {quote_id!r}; call get_quotes first"
+            )
+        slippage = max_slippage_bps if max_slippage_bps is not None else quote.slippage_bps
+        return await self.prepare_swap_tx(
+            input_mint=quote.input_mint,
+            output_mint=quote.output_mint,
+            amount=quote.in_amount,
+            slippage_bps=slippage,
+            wallet_pubkey=user_public_key,
+        )
 
 
 def _looks_like_pool_error(stderr_text: str) -> bool:

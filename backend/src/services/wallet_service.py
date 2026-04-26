@@ -323,18 +323,37 @@ class WalletService:
     async def sign_and_send_transaction(
         self, wallet_id: str, tx_bytes: bytes
     ) -> str:
-        """Sign and send via Privy. Returns tx signature. Raises on failure."""
+        """Sign and send via Privy. Returns tx signature. Raises on failure.
+
+        Wallet-RPC calls against owner-bound (policy-bound) wallets MUST
+        carry a ``privy-authorization-signature`` header — Privy's enclave
+        rejects unsigned RPC. See
+        ``.taskmaster/docs/task39-privy-contract-reverification.md``.
+        """
+        if self.signing_service is None:
+            raise PrivyAPIError(
+                0,
+                "PrivySigningService is required for wallet RPC. "
+                "Inject one via WalletService(signing_service=...).",
+                "sign_and_send_transaction",
+            )
         encoded_tx = base64.b64encode(tx_bytes).decode("ascii")
+        body = {
+            "method": "signAndSendTransaction",
+            "caip2": self.caip2,
+            "params": {
+                "transaction": encoded_tx,
+                "encoding": "base64",
+            },
+        }
+        url = f"{PRIVY_API_BASE}/wallets/{wallet_id}/rpc"
+        signature = self.signing_service.sign_request(
+            method="POST", url=url, body=body
+        )
         resp = await self.client.post(
             f"/wallets/{wallet_id}/rpc",
-            json={
-                "method": "signAndSendTransaction",
-                "caip2": self.caip2,
-                "params": {
-                    "transaction": encoded_tx,
-                    "encoding": "base64",
-                },
-            },
+            json=body,
+            headers={"privy-authorization-signature": signature},
         )
         if resp.status_code != 200:
             raise PrivyAPIError(
@@ -353,17 +372,34 @@ class WalletService:
     async def sign_transaction(
         self, wallet_id: str, tx_bytes: bytes
     ) -> bytes:
-        """Sign without sending. Returns signed tx bytes. Raises on failure."""
+        """Sign without sending. Returns signed tx bytes. Raises on failure.
+
+        Wallet-RPC calls against owner-bound (policy-bound) wallets MUST
+        carry a ``privy-authorization-signature`` header.
+        """
+        if self.signing_service is None:
+            raise PrivyAPIError(
+                0,
+                "PrivySigningService is required for wallet RPC. "
+                "Inject one via WalletService(signing_service=...).",
+                "sign_transaction",
+            )
         encoded_tx = base64.b64encode(tx_bytes).decode("ascii")
+        body = {
+            "method": "signTransaction",
+            "params": {
+                "transaction": encoded_tx,
+                "encoding": "base64",
+            },
+        }
+        url = f"{PRIVY_API_BASE}/wallets/{wallet_id}/rpc"
+        signature = self.signing_service.sign_request(
+            method="POST", url=url, body=body
+        )
         resp = await self.client.post(
             f"/wallets/{wallet_id}/rpc",
-            json={
-                "method": "signTransaction",
-                "params": {
-                    "transaction": encoded_tx,
-                    "encoding": "base64",
-                },
-            },
+            json=body,
+            headers={"privy-authorization-signature": signature},
         )
         if resp.status_code != 200:
             raise PrivyAPIError(

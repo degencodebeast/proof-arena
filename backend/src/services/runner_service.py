@@ -28,7 +28,7 @@ from src.db.schemas import AgentAction, AgentActionType
 from src.integrity.action_validator import ActionValidator
 from src.integrity.completion_evaluator import CompletionEvaluator
 from src.providers.local_provider import ActionParseError
-from src.services.jupiter_service import JupiterService
+from src.services.swap_service_protocol import SwapServiceProtocol
 from src.services.wallet_service import WalletService
 
 logger = logging.getLogger(__name__)
@@ -53,12 +53,12 @@ class RunnerService:
     def __init__(
         self,
         db: AsyncSession,
-        jupiter_service: JupiterService,
+        swap_service: SwapServiceProtocol,
         wallet_service: WalletService,
         program_client: AgentArenaClient | None = None,
     ):
         self.db = db
-        self.jupiter = jupiter_service
+        self.swap = swap_service
         self.wallet = wallet_service
         self.program = program_client
 
@@ -77,7 +77,7 @@ class RunnerService:
         """
         config = json.loads(challenge.config_json)
         adapter = SwapExecutionChallenge(config)
-        validator = ActionValidator(self.jupiter, config)
+        validator = ActionValidator(self.swap, config)
 
         wallet_address = run.benchmark_wallet_address or ""
         wallet_id = run.benchmark_wallet_ref or ""
@@ -193,7 +193,7 @@ class RunnerService:
                     try:
                         quote_id = action.params.get("quote_id", "")
                         slippage = action.params.get("max_slippage_bps", 100)
-                        tx_bytes = await self.jupiter.prepare_swap_transaction(
+                        tx_bytes = await self.swap.prepare_swap_transaction(
                             quote_id, wallet_address, slippage,
                         )
                         sig = await self.wallet.sign_and_send_transaction(
@@ -201,7 +201,7 @@ class RunnerService:
                         )
                         tx_signature = sig
                         # Include output_mint + quote snapshot for completion + audit
-                        quote = self.jupiter.get_cached_quote(quote_id)
+                        quote = self.swap.get_cached_quote(quote_id)
                         output_mint = quote.output_mint if quote else ""
                         quote_snapshot = quote.model_dump() if quote else None
                         exec_result = {
@@ -290,13 +290,13 @@ class RunnerService:
 
             result: dict[str, Any] = {"mint": mint, "amount": balance}
             try:
-                quotes = await self.jupiter.get_quotes(
+                quotes = await self.swap.get_quotes(
                     mint, usdc_mint, balance, slippage_bps=100,
                 )
                 if not quotes:
                     result["error"] = "No quotes available"
                 else:
-                    tx_bytes = await self.jupiter.prepare_swap_transaction(
+                    tx_bytes = await self.swap.prepare_swap_transaction(
                         quotes[0].quote_id, wallet_address, 100,
                     )
                     sig = await self.wallet.sign_and_send_transaction(

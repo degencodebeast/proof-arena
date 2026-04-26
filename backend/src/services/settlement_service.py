@@ -23,6 +23,7 @@ from src.chain.program_client import AgentArenaClient
 from src.config import settings
 from src.db.models import Agent, Challenge, RankSnapshot, Run, VerificationArtifact
 from src.integrity.settlement_verifier import SettlementVerifier
+from src.integrity.subject_types import SubjectType
 from src.services.serialization import serialize_payload
 
 logger = logging.getLogger(__name__)
@@ -88,20 +89,40 @@ class SettlementService:
         # 2. Select winner
         winner = SettlementVerifier.determine_winner(eligibility.eligible)
 
-        # Fix 4: Require all runs have on-chain addresses
+        # Fix 4 + Task 27: require on-chain RunAccount PDAs only for V1/local
+        # runs. Task 15 hosted-instance runs intentionally have
+        # onchain_address=None (V2 plan §3: zero new Anchor work for hosted
+        # runs). Pre-Task-27, the universal check blocked the hosted path
+        # from ever reaching _update_ranks. We partition by provider_type and
+        # reject mixed-provider challenges explicitly (not a V2 production
+        # path).
         all_runs = eligibility.eligible + [r for r, _ in eligibility.ineligible]
-        if winner is not None:
+        local_runs_for_settle = [
+            r for r in all_runs if r.provider_type != "hosted_instance"
+        ]
+        hosted_runs_for_settle = [
+            r for r in all_runs if r.provider_type == "hosted_instance"
+        ]
+        if local_runs_for_settle and hosted_runs_for_settle:
+            raise SettlementError(
+                f"Challenge {challenge_id} has mixed provider_type runs "
+                f"(local={len(local_runs_for_settle)}, "
+                f"hosted={len(hosted_runs_for_settle)}); "
+                "V2 settlement is single-kind per challenge"
+            )
+
+        if winner is not None and local_runs_for_settle:
             from solders.pubkey import Pubkey
 
             run_pdas = []
-            for run in all_runs:
+            for run in local_runs_for_settle:
                 if not run.onchain_address:
                     raise SettlementError(
                         f"Run {run.run_id} (agent {run.agent_id}) missing on-chain address"
                     )
                 run_pdas.append(Pubkey.from_string(run.onchain_address))
 
-            # 3. On-chain settle
+            # 3. On-chain settle (V1 path only)
             try:
                 settle_tx = await self.program.settle_challenge(challenge_id, run_pdas)
             except Exception as e:
@@ -113,20 +134,22 @@ class SettlementService:
             # the session rolls back, this artifact is lost. The on-chain
             # settlement is still real — reconciliation must detect already-
             # settled on-chain state by querying the ChallengeAccount directly.
-            # TODO (Task 15): Add durable reconciliation via separate session
-            # or write-ahead log for chain-success/DB-failure recovery.
             onchain_ref = serialize_payload({
                 "challenge_id": challenge_id,
                 "tx_signature": str(settle_tx),
                 "winner_agent_id": winner.agent_id if winner else None,
             })
             self.db.add(VerificationArtifact(
-                run_id=winner.run_id if winner else all_runs[0].run_id,
+                run_id=winner.run_id if winner else local_runs_for_settle[0].run_id,
                 artifact_type="onchain_settle",
                 uri_or_ref=onchain_ref,
                 content_hash=hashlib.sha256(onchain_ref.encode()).hexdigest(),
             ))
             await self.db.flush()  # Ordered before subsequent writes, not independently durable
+        # else: all-hosted V2 settlement. No on-chain settle call, no
+        # onchain_settle artifact. The settlement_record artifact created by
+        # verifier.create_settlement_record(...) below remains the off-chain
+        # evidence anchor. _update_ranks still runs per Task 27 routing.
 
         # 4. Update Challenge row
         challenge.winner_agent_id = winner.agent_id if winner else None
@@ -170,6 +193,15 @@ class SettlementService:
         for run in all_historical:
             runs_by_agent.setdefault(run.agent_id, []).append(run)
 
+        # Task 27: per-agent provider_type map derived from this challenge's
+        # runs. Routes RankSnapshot.subject_type and gates the canonical
+        # on-chain update so hosted_instance runs never mutate canonical
+        # AgentRankAccount state. uq_runs_challenge_agent guarantees at most
+        # one run per agent per challenge, so this map is single-valued.
+        provider_by_agent: dict[int, str] = {
+            run.agent_id: run.provider_type for run in challenge_runs
+        }
+
         # Map agent_id → run_id from challenge runs for artifact anchoring
         run_id_by_agent: dict[int, int] = {}
         for run in challenge_runs:
@@ -195,6 +227,17 @@ class SettlementService:
                 agent_id, is_winner, agent_runs, prev_wins,
             )
 
+            # Task 27: route subject_type from this challenge's provider_type
+            # so customized-instance reputation never blends into the
+            # canonical leaderboard (Task 16 read-side partition).
+            provider_type = provider_by_agent.get(agent_id, "local")
+            is_hosted_instance = provider_type == "hosted_instance"
+            subject_type = (
+                SubjectType.CUSTOMIZED_INSTANCE.value
+                if is_hosted_instance
+                else SubjectType.CANONICAL_TEMPLATE.value
+            )
+
             snapshot = RankSnapshot(
                 agent_id=agent_id,
                 rank_version=settings.RANK_VERSION,
@@ -206,9 +249,17 @@ class SettlementService:
                 losses=rank_data["losses"],
                 completed_runs=rank_data["completed_runs"],
                 invalid_runs=rank_data["invalid_runs"],
+                subject_type=subject_type,
                 computed_at=datetime.now(timezone.utc),
             )
             self.db.add(snapshot)
+
+            # Task 27: hosted_instance runs never mutate canonical on-chain
+            # reputation. Off-chain snapshot above is the only rank artifact
+            # for this agent; skip the V1 canonical-update branch entirely
+            # (including its rank_sync_failed reconciliation artifact).
+            if is_hosted_instance:
+                continue
 
             # On-chain rank update with real strategy PDA
             if self.program is not None:
