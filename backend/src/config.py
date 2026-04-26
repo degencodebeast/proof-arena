@@ -57,6 +57,24 @@ class Settings(BaseSettings):
     # normalizes them on load. No other key formats are accepted.
     PRIVY_AUTHORIZATION_PRIVATE_KEY: str = ""
 
+    # V2 Task 12 — AgentOS hosted-runtime configuration.
+    # V2 uses ONE self-hosted AgentOS FastAPI process as the runtime substrate
+    # (see V2 plan §2 and .taskmaster/docs/task12-agentos-contract-note.md).
+    # Canonical agents (e.g. swap_executor_v1) are pre-registered at AgentOS
+    # process startup; per-instance runtime isolation is session-based.
+    AGENTOS_API_URL: str = ""          # base_url of the self-hosted AgentOS FastAPI process
+    AGENTOS_AUTH_TOKEN: str = ""       # optional JWT; empty = unauthed (valid on private net)
+    AGENTOS_CANONICAL_AGENT_ID: str = ""  # pre-registered agent id for swap_executor_v1
+
+    # V2 Task 23 — hosted-wallet deploy stack configuration. These two
+    # settings are required by InstanceService.__init__ (Task 13) and
+    # read by src/api/instances.py::get_instance_service() (Task 23).
+    # If either is empty, POST /api/v1/instances/deploy returns 503
+    # (deploy stack not configured) — the same shape as Task 14's
+    # get_runtime() factory.
+    HOSTED_WALLET_POLICY_ID: str = ""  # pre-existing Privy policy id (Task 9, Phase-0 locked)
+    AUTHORIZATION_PUBKEY_B64: str = ""  # base64-DER P-256 SPKI of the Proof Arena authorization key (Task 8)
+
     # V2 Task 10 — optional override path for the wallet-policy allowlist
     # profile JSON file. Empty (default) → use the Phase-0-locked
     # ORCA_DEVNET_ALLOWLIST from src.policy.allowlists. Set this only for

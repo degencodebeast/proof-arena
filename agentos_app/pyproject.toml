@@ -1,0 +1,54 @@
+[project]
+name = "proof-arena-agentos-app"
+version = "0.1.0"
+description = "Proof Arena V2 hosted runtime — product-owned AgentOS service that pre-registers the canonical swap_executor_v1 agent at process startup."
+requires-python = ">=3.12"
+
+# Minimal runtime deps. Backend modules are imported via PYTHONPATH
+# (Docker bundles `backend/src/`); we do NOT pull the backend's full
+# dependency closure here — only what the AgentOS app itself needs.
+dependencies = [
+    "agno>=2.0",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "fastapi>=0.110",
+    # Required transitively by `src.services.template_service` and
+    # the `InstancePolicyEngine` it constructs at module load.
+    "sqlalchemy>=2.0",
+    # LLM provider SDKs — agno's provider modules import these lazily
+    # but they MUST be installable, otherwise the canonical agent
+    # cannot be built at AgentOS process startup. The four entries
+    # match `SUPPORTED_PROVIDERS` in `agentos_app/agent.py`:
+    # - `openai` covers both the `openrouter` (default) and `openai`
+    #   providers — agno's `openrouter` module imports
+    #   `openai.types.chat` at module load.
+    # - `anthropic` covers the `anthropic` provider.
+    # - `google-genai` covers the `google` provider (Gemini).
+    # Vendor API keys still bind via canonical SDK env names
+    # (OPENROUTER_API_KEY etc.), NEVER AGENTOS_-prefixed.
+    "openai>=1.0.0",
+    "anthropic>=0.40.0",
+    "google-genai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentos_app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = [".", "../backend"]
+# Disable anchorpy pytest plugin — incompatible with Python 3.14 and
+# unrelated to the agentos_app test surface.
+addopts = "-p no:anchorpy"
