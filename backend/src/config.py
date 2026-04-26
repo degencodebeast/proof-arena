@@ -64,7 +64,8 @@ class Settings(BaseSettings):
     # process startup; per-instance runtime isolation is session-based.
     AGENTOS_API_URL: str = ""          # base_url of the self-hosted AgentOS FastAPI process
     AGENTOS_AUTH_TOKEN: str = ""       # optional JWT; empty = unauthed (valid on private net)
-    AGENTOS_CANONICAL_AGENT_ID: str = ""  # pre-registered agent id for swap_executor_v1
+    # V2 Task 38: Phase-0 V0-VAL-3 locked default; override only for staging/test profiles.
+    AGENTOS_CANONICAL_AGENT_ID: str = "swap_executor_v1"  # pre-registered agent id for swap_executor_v1
 
     # V2 Task 23 — hosted-wallet deploy stack configuration. These two
     # settings are required by InstanceService.__init__ (Task 13) and
@@ -82,10 +83,10 @@ class Settings(BaseSettings):
     ALLOWLIST_PROFILE_PATH: str = ""
 
     # V2 Task 11 — Orca Whirlpools devnet hosted-swap configuration.
-    # Evidence: PHASE_0_CLOSEOUT_NOTE.md V0-VAL-3. Empty defaults keep
-    # V1 paths undisturbed; ops supplies real values via .env for V2.
-    V2_HOSTED_SWAP_POOL: str = ""   # e.g. 3KBZiL2g8C7tiJ32hTv5v3KM7aK9htpqTw4cTXz1HvPt
-    V2_HOSTED_USDC_MINT: str = ""   # Orca devUSDC: BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k
+    # Evidence: PHASE_0_CLOSEOUT_NOTE.md V0-VAL-3.
+    # V2 Task 38: Phase-0 V0-VAL-3 locked defaults; override only for staging/test profiles.
+    V2_HOSTED_SWAP_POOL: str = "3KBZiL2g8C7tiJ32hTv5v3KM7aK9htpqTw4cTXz1HvPt"  # SOL/devUSDC Whirlpool
+    V2_HOSTED_USDC_MINT: str = "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k"  # Orca devUSDC mint
     ORCA_SWAP_SCRIPT_PATH: str = "scripts/orca_swap.js"
 
     # OpenRouter (optional — for openrouter LLM provider)

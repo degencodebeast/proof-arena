@@ -10,18 +10,24 @@ from typing import Any
 
 from src.db.schemas import AgentActionType
 from src.integrity import ValidationResult
-from src.services.jupiter_service import JupiterService
+from src.services.swap_service_protocol import SwapServiceProtocol
 
 
 class ActionValidator:
-    """Concrete V1 action validator for swap execution benchmarks."""
+    """Concrete action validator for swap execution benchmarks.
+
+    Protocol-typed as of Task 37 — accepts any ``SwapServiceProtocol``
+    (V1 Jupiter or V2 Orca). Positional convention preserved for V1
+    callers: ``ActionValidator(jupiter, config)`` still works because
+    the parameter is positional.
+    """
 
     def __init__(
         self,
-        jupiter_service: JupiterService,
+        swap_service: SwapServiceProtocol,
         challenge_config: dict[str, Any],
     ):
-        self.jupiter = jupiter_service
+        self.swap = swap_service
         self.allowed_actions = {
             AgentActionType.EXECUTE_SWAP,
             AgentActionType.WAIT,
@@ -86,7 +92,7 @@ class ActionValidator:
             )
 
         # Quote freshness
-        if not self.jupiter.is_quote_fresh(quote_id, self.quote_max_age_secs):
+        if not self.swap.is_quote_fresh(quote_id, self.quote_max_age_secs):
             return ValidationResult(
                 valid=False,
                 reason="stale_quote",
@@ -94,7 +100,7 @@ class ActionValidator:
             )
 
         # Quote existence (explicit check after freshness)
-        quote = self.jupiter.get_cached_quote(quote_id)
+        quote = self.swap.get_cached_quote(quote_id)
         if quote is None:
             return ValidationResult(
                 valid=False,
