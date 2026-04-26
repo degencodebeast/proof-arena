@@ -388,7 +388,7 @@ class TestFlattening:
         runner.wallet.get_token_balances = AsyncMock(return_value={
             "USDC_MINT": 900, "SOL_MINT": 100,
         })
-        runner.jupiter.get_quotes = AsyncMock(return_value=[
+        runner.swap.get_quotes = AsyncMock(return_value=[
             QuoteOption(
                 quote_id="fq1", input_mint="SOL_MINT", output_mint="USDC_MINT",
                 in_amount=100, out_amount=95, slippage_bps=100,
@@ -410,7 +410,7 @@ class TestFlattening:
         runner.wallet.get_token_balances = AsyncMock(return_value={
             "SOL_MINT": 100,
         })
-        runner.jupiter.get_quotes = AsyncMock(side_effect=Exception("Jupiter down"))
+        runner.swap.get_quotes = AsyncMock(side_effect=Exception("Jupiter down"))
 
         run = _mock_run()
         events: list = []
@@ -513,7 +513,7 @@ class TestExecuteEventPayload:
         )
 
         runner = _make_runner()
-        runner.jupiter.get_cached_quote = MagicMock(return_value=mock_quote)
+        runner.swap.get_cached_quote = MagicMock(return_value=mock_quote)
 
         provider = _mock_provider([
             AgentAction(type=AgentActionType.EXECUTE_SWAP,
@@ -766,7 +766,7 @@ class TestCanonicalMintMatching:
         )
 
         runner = _make_runner()
-        runner.jupiter.get_cached_quote = MagicMock(return_value=mock_quote)
+        runner.swap.get_cached_quote = MagicMock(return_value=mock_quote)
         runner.wallet.get_token_balances = AsyncMock(return_value={"USDC_MINT": 900})
 
         provider = _mock_provider([
@@ -800,7 +800,7 @@ class TestQuoteSnapshotPersistence:
         )
 
         runner = _make_runner()
-        runner.jupiter.get_cached_quote = MagicMock(return_value=mock_quote)
+        runner.swap.get_cached_quote = MagicMock(return_value=mock_quote)
 
         provider = _mock_provider([
             AgentAction(type=AgentActionType.EXECUTE_SWAP,

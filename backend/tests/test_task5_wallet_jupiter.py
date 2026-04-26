@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -186,6 +186,7 @@ class TestPrivyResponseValidation:
         from src.services.wallet_service import WalletService, PrivyAPIError
 
         svc = WalletService(privy_app_id="a", privy_app_secret="b")
+        svc.signing_service = MagicMock(sign_request=MagicMock(return_value="sig"))
         svc.client.post = AsyncMock(
             return_value=httpx.Response(200, json={"data": {}})
         )
@@ -197,6 +198,7 @@ class TestPrivyResponseValidation:
         from src.services.wallet_service import WalletService, PrivyAPIError
 
         svc = WalletService(privy_app_id="a", privy_app_secret="b")
+        svc.signing_service = MagicMock(sign_request=MagicMock(return_value="sig"))
         svc.client.post = AsyncMock(
             return_value=httpx.Response(200, json={"data": {}})
         )
@@ -223,6 +225,7 @@ class TestPrivyResponseValidation:
             privy_app_id="a", privy_app_secret="b",
             solana_cluster="devnet",
         )
+        svc.signing_service = MagicMock(sign_request=MagicMock(return_value="sig"))
         svc.client.post = AsyncMock(
             return_value=httpx.Response(200, json={"data": {"hash": "sig"}})
         )
