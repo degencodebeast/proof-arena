@@ -111,8 +111,23 @@ class Settings(BaseSettings):
     # Admin
     ADMIN_API_KEY: str = ""  # Required for admin endpoints
 
+    # Browser CORS. Empty/default keeps the API same-origin/private by
+    # default; live/local frontend origins must be explicitly configured.
+    CORS_ORIGINS: str = ""
+
     # Debug
     DEBUG: bool = False
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Coolify-friendly comma-separated browser origins."""
+        if not self.CORS_ORIGINS:
+            return []
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.CORS_ORIGINS.split(",")
+            if origin.strip()
+        ]
 
 
 settings = Settings()
