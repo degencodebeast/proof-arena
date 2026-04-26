@@ -22,10 +22,11 @@ target_metadata = Base.metadata
 # Prefer runtime configuration over alembic.ini's local-dev placeholder.
 # In Docker, localhost points at the backend container, while Postgres is
 # reachable through the compose service name in DATABASE_URL.
-config.set_main_option(
-    "sqlalchemy.url",
-    os.environ.get("DATABASE_URL", settings.DATABASE_URL),
-)
+database_url = os.environ.get("DATABASE_URL", settings.DATABASE_URL)
+# Alembic stores this value in ConfigParser, where `%` starts interpolation.
+# Coolify-generated passwords may be URL-encoded (`%40`, `%2A`, ...), so the
+# URL must be escaped before set_main_option or migrations fail before connect.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
