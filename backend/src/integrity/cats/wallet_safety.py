@@ -5,7 +5,6 @@ Trust path: deterministic only. NO LLM SDK imports anywhere in this module.
 """
 from __future__ import annotations
 import re
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Agent, AgentInstance, Run
 from src.integrity.cats.schemas import WalletSafetyCatResponse
@@ -50,7 +49,7 @@ async def _resolve_instance(db: AsyncSession, agent_id: int) -> tuple[Agent, Age
     All bridge-failure modes (malformed metadata, malformed privy_user_id,
     missing AgentInstance row) collapse to InstanceUnresolvableError.
     """
-    agent = (await db.execute(select(Agent).where(Agent.agent_id == agent_id))).scalar_one_or_none()
+    agent = await db.get(Agent, agent_id)
     if agent is None:
         raise InstanceUnresolvableError("missing_agent")
     instance_id: int | None = None
@@ -72,7 +71,7 @@ async def _resolve_instance(db: AsyncSession, agent_id: int) -> tuple[Agent, Age
 
 async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafetyCatResponse:
     """Deterministic Cat compute. Raises domain exceptions; never returns HTTP-shaped errors."""
-    run = (await db.execute(select(Run).where(Run.run_id == run_id))).scalar_one_or_none()
+    run = await db.get(Run, run_id)
     if run is None:
         raise RunNotFoundError(run_id)
     if run.completion_status is None:
