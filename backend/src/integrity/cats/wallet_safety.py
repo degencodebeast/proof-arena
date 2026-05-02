@@ -177,6 +177,15 @@ async def resolve_run_and_instance(
     agent, instance = await _resolve_instance(db, run.agent_id)
     if instance.trust_label == "external_custom_runtime":
         raise UnsupportedTrustLabelError(instance.trust_label)
+    # Defensive live-status check (spec §9): non-live instances collapse into
+    # the single 404 instance_unresolvable rule. Internal classifier
+    # "instance_not_live" is for diagnostic logging only — the caller-visible
+    # body is the same {"error": "instance_unresolvable"} as bridge failures,
+    # which avoids leaking operator-private lifecycle status to anonymous
+    # callers. Asymmetric with external_custom_runtime (422) because
+    # trust_label is a public contract enum while status is operational.
+    if instance.status != "live":
+        raise InstanceUnresolvableError("instance_not_live")
     return run, agent, instance
 
 

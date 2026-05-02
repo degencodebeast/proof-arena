@@ -660,3 +660,81 @@ async def test_wallet_safety_cat_external_custom_runtime_returns_422_defensively
         "error": "unsupported_trust_label",
         "trust_label": "external_custom_runtime",
     }
+
+
+# =====================================================================
+# Task 18 — 5xx hardening: unexpected exceptions return locked body
+# =====================================================================
+
+
+async def test_wallet_safety_cat_returns_500_internal_error_on_unexpected_exception(
+    db, http_client, monkeypatch,
+):
+    """Spec §8: '5xx must never leak free-text from the trust path.'
+
+    If anything inside the route raises an unexpected exception (resolver
+    failure, compute bug, DB outage), the response MUST be 500 with body
+    `{"error": "internal_error"}` — not FastAPI's default `{"detail": ...}`
+    and never a stack trace.
+    """
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    async def _boom(_db, _run_id):  # pragma: no cover — invoked via monkeypatch only
+        raise RuntimeError("synthetic compute failure with sensitive details")
+
+    monkeypatch.setattr("src.api.cats.compute_wallet_safety_cat", _boom)
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 500
+    assert resp.json() == {"error": "internal_error"}
+    # Body must NOT leak the exception text.
+    assert "synthetic compute failure" not in resp.text
+    assert "sensitive details" not in resp.text
+
+
+# =====================================================================
+# Task 18 — Defensive live-status check: non-live instances → 404
+# =====================================================================
+
+
+async def test_wallet_safety_cat_non_live_instance_returns_404_instance_unresolvable(
+    db, http_client,
+):
+    """Spec §9: 'only live is eligible for Cat — saga-failed instances are
+    excluded by the upstream challenge_service gate, but the Cat re-checks
+    defensively.'
+
+    Non-live instances collapse into the single 404 instance_unresolvable
+    rule (404 not 422 to avoid leaking operator-private lifecycle status to
+    anonymous callers — principled asymmetry with external_custom_runtime,
+    which uses 422 because trust_label is a public contract enum).
+
+    The non-live check must fire BEFORE the trust_label-keyed auth gate so
+    anonymous callers cannot probe instance lifecycle by sending requests
+    without auth.
+    """
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db,
+        template_id=tid,
+        # Default trust_label is benchmark_compatible_customized_instance —
+        # would normally trigger 401 (no auth) for the anonymous request.
+        # The non-live gate must fire FIRST and return 404 instead.
+        status="paused",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "instance_unresolvable"}
+    # Body must NOT leak the actual status value.
+    assert "paused" not in resp.text
+    assert "instance_not_live" not in resp.text

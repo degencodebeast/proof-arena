@@ -1,6 +1,6 @@
 """Wallet Safety Cat — read-only HTTP router."""
 from __future__ import annotations
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,22 +58,30 @@ async def get_wallet_safety_cat(
     - external_custom_runtime → defensive 422 (caught by resolver).
     """
     try:
-        run, agent, instance = await resolve_run_and_instance(db, run_id)
-    except (
-        RunNotFoundError, InstanceUnresolvableError, RunNotFinalError,
-        UnsupportedProviderTypeError, UnsupportedTrustLabelError,
-    ) as e:
-        return _map_domain_error(e)
+        try:
+            run, agent, instance = await resolve_run_and_instance(db, run_id)
+        except (
+            RunNotFoundError, InstanceUnresolvableError, RunNotFinalError,
+            UnsupportedProviderTypeError, UnsupportedTrustLabelError,
+        ) as e:
+            return _map_domain_error(e)
 
-    # Per spec §8: owner auth is via auth.get_current_user. We delegate fully
-    # to that public surface; do NOT reach into private _derive_identity.
-    # get_current_user raises 401 itself on missing/empty bearer.
-    if instance.trust_label == "benchmark_compatible_customized_instance":
-        user = await get_current_user(creds)
-        if user.privy_user_id != instance.instance_owner_ref:
-            return JSONResponse(
-                status_code=403, content={"error": "not_instance_owner"},
-            )
-    # benchmarked_canonical_template → public; external_custom_runtime → already 422'd by resolver.
+        # Per spec §8: owner auth is via auth.get_current_user. We delegate fully
+        # to that public surface; do NOT reach into private _derive_identity.
+        # get_current_user raises 401 itself on missing/empty bearer.
+        if instance.trust_label == "benchmark_compatible_customized_instance":
+            user = await get_current_user(creds)
+            if user.privy_user_id != instance.instance_owner_ref:
+                return JSONResponse(
+                    status_code=403, content={"error": "not_instance_owner"},
+                )
+        # benchmarked_canonical_template → public; external_custom_runtime → already 422'd by resolver.
 
-    return await compute_wallet_safety_cat(db, run_id)
+        return await compute_wallet_safety_cat(db, run_id)
+    except HTTPException:
+        # Let FastAPI's auth-layer 401 / explicit aborts propagate unmodified.
+        raise
+    except Exception:
+        # Spec §8: 5xx must never leak free-text. Locked body, no detail / no
+        # stack trace. Internal exception text must NOT appear in the response.
+        return JSONResponse(status_code=500, content={"error": "internal_error"})
