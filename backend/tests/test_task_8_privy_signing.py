@@ -131,6 +131,41 @@ def test_constructor_normalizes_escaped_newlines():
     assert svc is not None
 
 
+def test_constructor_accepts_real_multiline_pem():
+    """Real multiline PEM (no escape sequences) loads without normalization."""
+    from src.services.privy_signing import PrivySigningService
+
+    pem, _pub = _p256_pem()
+    # Sanity: real PEM contains real newlines and no literal backslashes
+    assert "\n" in pem
+    assert "\\" not in pem
+    svc = PrivySigningService(private_key_pem=pem, app_id="app-id-x")
+    assert svc is not None
+
+
+def test_constructor_normalizes_double_escaped_newlines():
+    """PEM with double-escaped ``\\\\n`` (Coolify developer-mode JSON-escaping)
+    loads. The runtime diagnostic that motivated this case showed env values
+    containing literal ``\\\\n`` (3 chars: backslash + backslash + n) which
+    Python's ``serialization.load_pem_private_key`` rejects with
+    ``InvalidByte(0, 92)`` (92 = ASCII for backslash).
+    """
+    from src.services.privy_signing import PrivySigningService
+
+    pem, _pub = _p256_pem()
+    # Build the double-escaped form: every real newline becomes the 3-char
+    # sequence ``\\n`` (backslash + backslash + n) on the wire.
+    double_escaped = pem.replace("\n", "\\\\n")
+    # Sanity: the escaped form does NOT contain real newlines and DOES
+    # contain the double-backslash-n pattern.
+    assert "\n" not in double_escaped
+    assert "\\\\n" in double_escaped
+    svc = PrivySigningService(
+        private_key_pem=double_escaped, app_id="app-id-x"
+    )
+    assert svc is not None
+
+
 def test_constructor_raises_on_empty_key():
     from src.services.privy_signing import (
         InvalidPrivyAuthorizationKeyError,
