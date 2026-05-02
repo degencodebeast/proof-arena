@@ -79,5 +79,7 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
     if run.provider_type != "hosted_instance":
         raise UnsupportedProviderTypeError(run.provider_type)
     agent, instance = await _resolve_instance(db, run.agent_id)
-    # Subsequent tasks (6+) add trust_label / verdict logic.
+    if instance.trust_label == "external_custom_runtime":
+        raise UnsupportedTrustLabelError(instance.trust_label)
+    # Subsequent tasks (7+) add verdict / response composition logic.
     raise NotImplementedError

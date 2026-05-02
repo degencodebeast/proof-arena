@@ -221,3 +221,23 @@ async def test_wallet_safety_cat_returns_404_instance_unresolvable_for_unresolva
 
     with pytest.raises(InstanceUnresolvableError):
         await compute_wallet_safety_cat(db, run.run_id)
+
+
+# =====================================================================
+# Task 6 — Defensive 422 unsupported_trust_label for external_custom_runtime
+# =====================================================================
+
+
+async def test_wallet_safety_cat_external_custom_runtime_returns_422_defensively(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, UnsupportedTrustLabelError,
+    )
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid, trust_label="external_custom_runtime")
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    with pytest.raises(UnsupportedTrustLabelError) as ei:
+        await compute_wallet_safety_cat(db, run.run_id)
+    assert ei.value.trust_label == "external_custom_runtime"
