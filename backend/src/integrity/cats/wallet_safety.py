@@ -5,7 +5,7 @@ Trust path: deterministic only. NO LLM SDK imports anywhere in this module.
 """
 from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
-from src.api.cats_schemas import WalletSafetyCatResponse
+from src.integrity.cats.schemas import WalletSafetyCatResponse
 
 
 # Domain exceptions — router maps each to the spec'd HTTP code/body.
