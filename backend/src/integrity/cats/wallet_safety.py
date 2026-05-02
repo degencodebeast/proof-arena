@@ -157,8 +157,16 @@ def _critique_for(reason_str: str) -> str:
     return description[:512]
 
 
-async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafetyCatResponse:
-    """Deterministic Cat compute. Raises domain exceptions; never returns HTTP-shaped errors."""
+async def resolve_run_and_instance(
+    db: AsyncSession, run_id: int,
+) -> tuple[Run, Agent, AgentInstance]:
+    """Run finality + provider-type + bridge resolution + trust-label gate.
+
+    Used by the router for conditional auth: it preloads run+agent+instance,
+    decides auth based on instance.trust_label, then calls compute_wallet_safety_cat.
+    Compute then re-calls this resolver internally — small redundant DB reads in
+    exchange for keeping the compute module pure (no auth-aware coupling).
+    """
     run = await db.get(Run, run_id)
     if run is None:
         raise RunNotFoundError(run_id)
@@ -169,6 +177,12 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
     agent, instance = await _resolve_instance(db, run.agent_id)
     if instance.trust_label == "external_custom_runtime":
         raise UnsupportedTrustLabelError(instance.trust_label)
+    return run, agent, instance
+
+
+async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafetyCatResponse:
+    """Deterministic Cat compute. Raises domain exceptions; never returns HTTP-shaped errors."""
+    run, agent, instance = await resolve_run_and_instance(db, run_id)
     if run.invalid_reason in WALLET_SAFETY_REASONS:
         return _compose(
             run=run, agent=agent, instance=instance,

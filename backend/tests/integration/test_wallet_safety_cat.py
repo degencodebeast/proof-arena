@@ -576,3 +576,55 @@ async def test_wallet_safety_cat_v1_local_provider_runs_out_of_scope_via_http(
     resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
     assert resp.status_code == 422
     assert resp.json() == {"error": "unsupported_provider_type", "provider_type": "local"}
+
+
+# =====================================================================
+# Task 16 — Owner-auth gate via get_current_user (trust_label-keyed)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_benchmark_compatible_customized_instance_run_requires_owner_auth(
+    db, http_client,
+):
+    from fastapi.security import HTTPAuthorizationCredentials
+    from src.auth import get_current_user
+
+    tid = await _seed_template(db)
+    # Derive owner_ref via the same public auth surface the router uses
+    # (auth.get_current_user per spec §8) so the test contract matches
+    # production identity derivation exactly. Do NOT import private helpers.
+    owner_token = "owner-secret-token"
+    owner_creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=owner_token)
+    owner_user = await get_current_user(owner_creds)
+    owner_ref = owner_user.privy_user_id
+
+    inst = await _seed_instance(
+        db, template_id=tid,
+        trust_label="benchmark_compatible_customized_instance",
+        instance_owner_ref=owner_ref,
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    # 1. No auth → 401 (FastAPI dependency)
+    r1 = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert r1.status_code == 401, r1.text
+
+    # 2. Wrong-owner auth → 403 with named body
+    r2 = await http_client.get(
+        f"/api/v1/cats/wallet_safety/{run.run_id}",
+        headers={"Authorization": "Bearer not-the-owner"},
+    )
+    assert r2.status_code == 403
+    assert r2.json() == {"error": "not_instance_owner"}
+
+    # 3. Correct-owner auth → 200
+    r3 = await http_client.get(
+        f"/api/v1/cats/wallet_safety/{run.run_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert r3.status_code == 200, r3.text
+    data = r3.json()
+    assert data["trust_label"] == "benchmark_compatible_customized_instance"
+    assert data["result"] == "pass"
