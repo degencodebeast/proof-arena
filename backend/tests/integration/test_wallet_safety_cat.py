@@ -337,3 +337,31 @@ async def test_wallet_safety_cat_passes_but_surfaces_offscope_invalid_reason(db)
         "overall run validity is handled by another Cat."
     )
     assert all(c.result == "pass" for c in resp.checks)
+
+
+# =====================================================================
+# Task 10 — Critique field bounded ≤ 512 chars + FAILURE_COPY_MAP dict access
+# =====================================================================
+
+
+async def test_wallet_safety_cat_critique_field_bounded_to_512_chars_and_drawn_from_copy_map(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    from src.integrity.failure_taxonomy import RunInvalidReason
+    from src.integrity.failure_taxonomy_copy import FAILURE_COPY_MAP
+
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid",
+        invalid_reason="wallet_policy_rejected",
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "fail"
+    assert resp.reason == "wallet_policy_rejected"
+    expected = FAILURE_COPY_MAP[RunInvalidReason.WALLET_POLICY_REJECTED]["description"]
+    assert resp.critique == expected
+    assert len(resp.critique) <= 512

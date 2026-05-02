@@ -8,6 +8,8 @@ import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Agent, AgentInstance, Run
 from src.integrity.cats.schemas import WalletSafetyCatResponse
+from src.integrity.failure_taxonomy import RunInvalidReason
+from src.integrity.failure_taxonomy_copy import FAILURE_COPY_MAP
 
 
 _METADATA_RE = re.compile(r"^agent_instances/(?P<id>\d+)$")
@@ -147,6 +149,14 @@ def _compose(
     )
 
 
+def _critique_for(reason_str: str) -> str:
+    """Look up critique copy via dict access on FAILURE_COPY_MAP. NEVER attribute access."""
+    enum_member = RunInvalidReason(reason_str)
+    copy = FAILURE_COPY_MAP[enum_member]            # dict access #1
+    description = copy["description"]                # dict access #2 — TypedDict, NOT attribute
+    return description[:512]
+
+
 async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafetyCatResponse:
     """Deterministic Cat compute. Raises domain exceptions; never returns HTTP-shaped errors."""
     run = await db.get(Run, run_id)
@@ -164,7 +174,7 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
             run=run, agent=agent, instance=instance,
             failing_check_id=_REASON_TO_CHECK[run.invalid_reason],
             reason=run.invalid_reason,
-            critique="",  # populated in Task 10
+            critique=_critique_for(run.invalid_reason),
             off_scope_invalid_reason=None,
         )
     if run.invalid_reason is not None and run.invalid_reason not in WALLET_SAFETY_REASONS:
