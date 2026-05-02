@@ -167,7 +167,13 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
             critique="",  # populated in Task 10
             off_scope_invalid_reason=None,
         )
-    # All-pass + off-scope branches handled in subsequent tasks.
+    if run.invalid_reason is not None and run.invalid_reason not in WALLET_SAFETY_REASONS:
+        return _compose(
+            run=run, agent=agent, instance=instance,
+            failing_check_id=None, reason=None, critique="",
+            off_scope_invalid_reason=run.invalid_reason,
+        )
+    # All-pass: complete run with no invalid_reason.
     return _compose(
         run=run, agent=agent, instance=instance,
         failing_check_id=None, reason=None, critique="",

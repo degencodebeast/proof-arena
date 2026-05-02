@@ -305,3 +305,35 @@ async def test_wallet_safety_cat_fails_on_wallet_safety_reasons(db, reason, expe
     failing = [c for c in resp.checks if c.result == "fail"]
     assert len(failing) == 1
     assert failing[0].check_id == expected_check_id
+
+
+# =====================================================================
+# Task 9 — Off-scope visibility fields (binary pass + scope_note)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_passes_but_surfaces_offscope_invalid_reason(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat, OFF_SCOPE_NOTE
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid",
+        invalid_reason="incomplete_required_actions",  # off-scope for wallet safety
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "pass"
+    assert resp.reason is None
+    assert resp.run_completion_status == "invalid"
+    assert resp.off_scope_invalid_reason == "incomplete_required_actions"
+    assert resp.scope_note == OFF_SCOPE_NOTE
+    # Locked text byte-equal — no paraphrase.
+    assert resp.scope_note == (
+        "Run failed for a non-wallet-safety reason. "
+        "Wallet Safety Cat found no wallet-safety failure; "
+        "overall run validity is handled by another Cat."
+    )
+    assert all(c.result == "pass" for c in resp.checks)
