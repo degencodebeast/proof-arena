@@ -444,3 +444,31 @@ def test_wallet_safety_cat_no_llm_imports_in_trust_path():
             if forbidden.match(line):
                 offenders.append(f"{p}:{i}:{line}")
     assert not offenders, f"LLM/network SDK imports leaked into trust path: {offenders}"
+
+
+# =====================================================================
+# Task 14 — Lineage-not-score guard (no rank_snapshots writes)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_lineage_not_score(db):
+    """Wallet Safety Cat must NEVER write rank_snapshots.
+
+    Lineage-not-score discipline (V2_DESIGN_SPEC §10 invariant 6): customized-instance
+    Cat verdicts attach to the instance, not the canonical template. The Cat is purely
+    read-side — any DB write would be a contract violation.
+    """
+    from sqlalchemy import select, func
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    from src.db.models import RankSnapshot
+
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    before = (await db.execute(select(func.count()).select_from(RankSnapshot))).scalar_one()
+    _ = await compute_wallet_safety_cat(db, run.run_id)
+    after = (await db.execute(select(func.count()).select_from(RankSnapshot))).scalar_one()
+    assert before == after, "wallet_safety cat must not write rank_snapshots"
