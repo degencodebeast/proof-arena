@@ -628,3 +628,35 @@ async def test_wallet_safety_cat_benchmark_compatible_customized_instance_run_re
     data = r3.json()
     assert data["trust_label"] == "benchmark_compatible_customized_instance"
     assert data["result"] == "pass"
+
+
+# =====================================================================
+# Task 17 — Defensive 422 for external_custom_runtime over HTTP
+# =====================================================================
+
+
+async def test_wallet_safety_cat_external_custom_runtime_returns_422_defensively_via_http(
+    db, http_client,
+):
+    """End-to-end HTTP regression-lock for the external_custom_runtime defensive 422.
+
+    Compute-level enforcement landed in Task 6 (UnsupportedTrustLabelError raised
+    inside resolve_run_and_instance). Task 15 wired the router's error-mapping.
+    This test verifies the full HTTP path returns 422 + the locked JSON body
+    BEFORE the auth gate runs (so the response shape is the same regardless
+    of bearer presence).
+    """
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="external_custom_runtime",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "error": "unsupported_trust_label",
+        "trust_label": "external_custom_runtime",
+    }
