@@ -401,3 +401,22 @@ async def test_wallet_safety_cat_envelope_subcheck_ids_are_local_not_runinvalidr
     failing = [c for c in resp.checks if c.result == "fail"]
     assert len(failing) == 1
     assert set(failing[0].model_dump().keys()) == {"check_id", "result"}
+
+
+# =====================================================================
+# Task 12 — Evidence block carries run_log_hash (regression lock)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_evidence_block_includes_run_log_hash(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, run_log_hash="b" * 64)
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.evidence.run_log_hash == "b" * 64
+    assert resp.evidence.primary_event_id is None
+    assert resp.evidence.verifier_url is None
