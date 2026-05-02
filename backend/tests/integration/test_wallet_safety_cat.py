@@ -188,3 +188,36 @@ async def test_wallet_safety_cat_v1_local_provider_runs_out_of_scope(db):
     with pytest.raises(UnsupportedProviderTypeError) as ei:
         await compute_wallet_safety_cat(db, run.run_id)
     assert ei.value.provider_type == "local"
+
+
+# =====================================================================
+# Task 5 — Synthetic-Agent bridge resolver + 404 instance_unresolvable
+# =====================================================================
+
+
+@pytest.mark.parametrize(
+    "mode,metadata_ref_override,privy_user_id_override",
+    [
+        ("malformed_metadata_no_fallback",      "garbage://no-instance",     "not-instance-prefixed"),
+        ("metadata_points_to_missing_instance", "agent_instances/99999",     "instance:99999"),
+        ("privy_fallback_only_but_missing",     None,                        "instance:99999"),
+        ("metadata_and_fallback_both_garbage",  "garbage",                   "garbage"),
+    ],
+)
+async def test_wallet_safety_cat_returns_404_instance_unresolvable_for_unresolvable_bridge(
+    db, mode, metadata_ref_override, privy_user_id_override,
+):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, InstanceUnresolvableError,
+    )
+    bridge = await _seed_bridge_agent(
+        db,
+        instance_id=None,
+        metadata_ref_override=metadata_ref_override,
+        privy_user_id_override=privy_user_id_override,
+    )
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    with pytest.raises(InstanceUnresolvableError):
+        await compute_wallet_safety_cat(db, run.run_id)
