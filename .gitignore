@@ -31,3 +31,9 @@ node_modules/
 .env.*
 !.env.example
 privy_authorization_private_key.pem
+
+# Graphify outputs
+graphify-out/
+graphify-out-strategy/
+graphify-out-full/
+privy_authorization_private_key.pem

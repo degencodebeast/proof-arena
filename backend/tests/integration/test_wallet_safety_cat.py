@@ -1,0 +1,740 @@
+"""Wallet Safety Cat — integration tests.
+
+Reuses the existing async conftest at tests/integration/conftest.py for the
+`db` AsyncSession fixture. These local helpers wrap that fixture's primitives
+to add the bridge fields (`metadata_ref`, `subject_type`, `provider_type`)
+that the conftest factories don't accept.
+"""
+import json
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.db.models import Agent, AgentInstance, AgentTemplate, Run, RunEvent
+
+pytestmark = pytest.mark.integration
+
+# Locked five-field envelope for AgentInstance.effective_config_json
+_ENV = {
+    "max_slippage_bps": 100,
+    "max_position_size": 10_000_000,
+    "allowed_token_universe": ["SOL", "USDC"],
+    "max_runtime_seconds": 300,
+    "max_iterations": 20,
+}
+
+
+async def _seed_template(db: AsyncSession) -> int:
+    tmpl = AgentTemplate(
+        template_key="swap_executor_v1",
+        template_version="swap_executor_v1",
+        description="test",
+        allowed_fields_json=json.dumps(sorted(_ENV.keys())),
+        default_config_json=json.dumps(_ENV),
+        system_prompt="balanced",
+        is_deployable=1,
+    )
+    db.add(tmpl)
+    await db.flush()
+    return tmpl.template_id
+
+
+async def _seed_instance(
+    db: AsyncSession,
+    *,
+    template_id: int,
+    trust_label: str = "benchmark_compatible_customized_instance",
+    instance_owner_ref: str = "owner-1",
+    status: str = "live",
+) -> AgentInstance:
+    inst = AgentInstance(
+        template_id=template_id,
+        template_version_at_deploy="swap_executor_v1",
+        instance_owner_ref=instance_owner_ref,
+        effective_config_json=json.dumps(_ENV, sort_keys=True),
+        wallet_address="sol-addr-1",
+        hosted_wallet_ref="w-id-1",
+        wallet_provider="privy",
+        status=status,
+        trust_label=trust_label,
+        runtime_handle_json=json.dumps({"instance_id": "swap-executor-v1"}),
+    )
+    db.add(inst)
+    await db.flush()
+    return inst
+
+
+async def _seed_bridge_agent(
+    db: AsyncSession,
+    *,
+    instance_id: int | None,
+    subject_type: str = "customized_instance",
+    use_metadata_ref: bool = True,
+    privy_user_id_override: str | None = None,
+    metadata_ref_override: str | None = None,
+) -> Agent:
+    """Synthetic-Agent bridge row created the way challenge_service.create_run_for_instance does it."""
+    import hashlib
+    if metadata_ref_override is not None:
+        meta = metadata_ref_override
+    elif use_metadata_ref and instance_id is not None:
+        meta = f"agent_instances/{instance_id}"
+    else:
+        meta = None
+    privy = (
+        privy_user_id_override
+        if privy_user_id_override is not None
+        else (f"instance:{instance_id}" if instance_id is not None else "instance:none")
+    )
+    agent = Agent(
+        privy_user_id=privy,
+        owner_wallet="WalletAddr11111111111111111111111111111111",
+        display_name=f"bridge-{instance_id}",
+        submission_hash=hashlib.sha256(b"x").hexdigest(),
+        system_prompt="x",
+        config_json="{}",
+        status="active",
+        moderation_status="active",
+        onchain_address="StrategyAddr11111111111111111111111111111111",
+        metadata_ref=meta,
+        subject_type=subject_type,
+    )
+    db.add(agent)
+    await db.flush()
+    return agent
+
+
+async def _seed_run(
+    db: AsyncSession,
+    *,
+    agent_id: int,
+    challenge_id: int = 1,
+    completion_status: str | None = "complete",
+    invalid_reason: str | None = None,
+    provider_type: str = "hosted_instance",
+    run_log_hash: str | None = "a" * 64,
+) -> Run:
+    from datetime import datetime, timezone
+    from src.config import settings
+    run = Run(
+        challenge_id=challenge_id,
+        agent_id=agent_id,
+        provider_type=provider_type,
+        status="completed" if completion_status else "running",
+        completion_status=completion_status,
+        starting_value=100_000_000,
+        ending_value=105_000_000,
+        run_log_hash=run_log_hash,
+        invalid_reason=invalid_reason,
+        app_version=settings.APP_VERSION,
+        challenge_type="swap_execution",
+        challenge_version=settings.CHALLENGE_VERSION,
+        action_schema_version=settings.ACTION_SCHEMA_VERSION,
+        evidence_schema_version=settings.EVIDENCE_SCHEMA_VERSION,
+        ended_at=datetime.now(timezone.utc) if completion_status else None,
+    )
+    db.add(run)
+    await db.flush()
+    return run
+
+
+# =====================================================================
+# Task 2 — 404 run_not_found for unknown run_id
+# =====================================================================
+
+
+async def test_wallet_safety_cat_returns_404_for_unknown_run_id(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, RunNotFoundError,
+    )
+    with pytest.raises(RunNotFoundError):
+        await compute_wallet_safety_cat(db, 99999)
+
+
+# =====================================================================
+# Task 3 — 422 run_not_final when Run.completion_status IS NULL
+# =====================================================================
+
+
+async def test_wallet_safety_cat_returns_422_for_completion_status_null(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, RunNotFinalError,
+    )
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, completion_status=None)
+    await db.commit()
+
+    with pytest.raises(RunNotFinalError) as ei:
+        await compute_wallet_safety_cat(db, run.run_id)
+    # Must surface the lifecycle status (reference-only) in the error.
+    assert ei.value.lifecycle_status == "running"
+
+
+# =====================================================================
+# Task 4 — 422 unsupported_provider_type for V1 local runs
+# =====================================================================
+
+
+async def test_wallet_safety_cat_v1_local_provider_runs_out_of_scope(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, UnsupportedProviderTypeError,
+    )
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, provider_type="local")
+    await db.commit()
+
+    with pytest.raises(UnsupportedProviderTypeError) as ei:
+        await compute_wallet_safety_cat(db, run.run_id)
+    assert ei.value.provider_type == "local"
+
+
+# =====================================================================
+# Task 5 — Synthetic-Agent bridge resolver + 404 instance_unresolvable
+# =====================================================================
+
+
+@pytest.mark.parametrize(
+    "mode,metadata_ref_override,privy_user_id_override",
+    [
+        ("malformed_metadata_no_fallback",      "garbage://no-instance",     "not-instance-prefixed"),
+        ("metadata_points_to_missing_instance", "agent_instances/99999",     "instance:99999"),
+        ("privy_fallback_only_but_missing",     None,                        "instance:99999"),
+        ("metadata_and_fallback_both_garbage",  "garbage",                   "garbage"),
+    ],
+)
+async def test_wallet_safety_cat_returns_404_instance_unresolvable_for_unresolvable_bridge(
+    db, mode, metadata_ref_override, privy_user_id_override,
+):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, InstanceUnresolvableError,
+    )
+    bridge = await _seed_bridge_agent(
+        db,
+        instance_id=None,
+        metadata_ref_override=metadata_ref_override,
+        privy_user_id_override=privy_user_id_override,
+    )
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    with pytest.raises(InstanceUnresolvableError):
+        await compute_wallet_safety_cat(db, run.run_id)
+
+
+# =====================================================================
+# Task 6 — Defensive 422 unsupported_trust_label for external_custom_runtime
+# =====================================================================
+
+
+async def test_wallet_safety_cat_external_custom_runtime_returns_422_defensively(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, UnsupportedTrustLabelError,
+    )
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid, trust_label="external_custom_runtime")
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    with pytest.raises(UnsupportedTrustLabelError) as ei:
+        await compute_wallet_safety_cat(db, run.run_id)
+    assert ei.value.trust_label == "external_custom_runtime"
+
+
+# =====================================================================
+# Task 7 — Pass verdict when run is complete and no invalid_reason
+# =====================================================================
+
+
+async def test_wallet_safety_cat_pass_when_run_complete_no_invalid_reason(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid, trust_label="benchmark_compatible_customized_instance")
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, completion_status="complete", invalid_reason=None)
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "pass"
+    assert resp.reason is None
+    assert resp.critique == ""
+    assert resp.run_completion_status == "complete"
+    assert resp.off_scope_invalid_reason is None
+    assert resp.scope_note is None
+    assert resp.run_id == run.run_id
+    assert resp.instance_id == inst.instance_id
+    assert resp.subject_type == "customized_instance"  # from Agent.subject_type
+    assert resp.trust_label == "benchmark_compatible_customized_instance"
+    assert all(c.result == "pass" for c in resp.checks)
+    assert len(resp.checks) == 10
+
+
+# =====================================================================
+# Task 8 — Fail verdicts for the five wallet-safety RunInvalidReason members
+# =====================================================================
+
+
+@pytest.mark.parametrize(
+    "reason,expected_check_id",
+    [
+        ("mainnet_guard_triggered",          "mainnet_guard_check"),
+        ("wallet_policy_rejected",           "wallet_policy_check"),
+        ("authorization_signature_rejected", "authorization_signature_check"),
+        ("hosted_wallet_unavailable",        "hosted_wallet_available_check"),
+        ("invalid_action_attempts_exceeded", "invalid_action_attempts_check"),
+    ],
+)
+async def test_wallet_safety_cat_fails_on_wallet_safety_reasons(db, reason, expected_check_id):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid", invalid_reason=reason,
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "fail"
+    assert resp.reason == reason
+    assert resp.run_completion_status == "invalid"
+    assert resp.off_scope_invalid_reason is None
+    failing = [c for c in resp.checks if c.result == "fail"]
+    assert len(failing) == 1
+    assert failing[0].check_id == expected_check_id
+
+
+# =====================================================================
+# Task 9 — Off-scope visibility fields (binary pass + scope_note)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_passes_but_surfaces_offscope_invalid_reason(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat, OFF_SCOPE_NOTE
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid",
+        invalid_reason="incomplete_required_actions",  # off-scope for wallet safety
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "pass"
+    assert resp.reason is None
+    assert resp.run_completion_status == "invalid"
+    assert resp.off_scope_invalid_reason == "incomplete_required_actions"
+    assert resp.scope_note == OFF_SCOPE_NOTE
+    # Locked text byte-equal — no paraphrase.
+    assert resp.scope_note == (
+        "Run failed for a non-wallet-safety reason. "
+        "Wallet Safety Cat found no wallet-safety failure; "
+        "overall run validity is handled by another Cat."
+    )
+    assert all(c.result == "pass" for c in resp.checks)
+
+
+# =====================================================================
+# Task 10 — Critique field bounded ≤ 512 chars + FAILURE_COPY_MAP dict access
+# =====================================================================
+
+
+async def test_wallet_safety_cat_critique_field_bounded_to_512_chars_and_drawn_from_copy_map(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    from src.integrity.failure_taxonomy import RunInvalidReason
+    from src.integrity.failure_taxonomy_copy import FAILURE_COPY_MAP
+
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid",
+        invalid_reason="wallet_policy_rejected",
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "fail"
+    assert resp.reason == "wallet_policy_rejected"
+    expected = FAILURE_COPY_MAP[RunInvalidReason.WALLET_POLICY_REJECTED]["description"]
+    assert resp.critique == expected
+    assert len(resp.critique) <= 512
+
+
+# =====================================================================
+# Task 11 — Per-check check_id discipline lock
+# =====================================================================
+
+
+import re as _re_t11  # alias to avoid shadowing any earlier `re` import in the test file
+
+
+async def test_wallet_safety_cat_envelope_subcheck_ids_are_local_not_runinvalidreason(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    from src.integrity.failure_taxonomy import RunInvalidReason
+
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid",
+        invalid_reason="wallet_policy_rejected",
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    runinvalid_values = {m.value for m in RunInvalidReason}
+    pat = _re_t11.compile(r"^[a-z_]+_check$")
+    for c in resp.checks:
+        assert pat.match(c.check_id), f"check_id must match snake_case_check pattern: {c.check_id}"
+        assert c.check_id not in runinvalid_values, (
+            f"check_id {c.check_id} leaked a RunInvalidReason value"
+        )
+    # Per-check object exposes ONLY check_id + result. No reason field at check level.
+    failing = [c for c in resp.checks if c.result == "fail"]
+    assert len(failing) == 1
+    assert set(failing[0].model_dump().keys()) == {"check_id", "result"}
+
+
+# =====================================================================
+# Task 12 — Evidence block carries run_log_hash (regression lock)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_evidence_block_includes_run_log_hash(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, run_log_hash="b" * 64)
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.evidence.run_log_hash == "b" * 64
+    assert resp.evidence.primary_event_id is None
+    assert resp.evidence.verifier_url is None
+
+
+# =====================================================================
+# Task 13 — No-LLM-imports static guard
+# =====================================================================
+
+
+def test_wallet_safety_cat_no_llm_imports_in_trust_path():
+    """Static filesystem audit: integrity/cats/ must NOT import openai/anthropic/requests.
+
+    Trust path discipline: deterministic only. LLM judges may layer on top later as
+    explanation helpers, but never in the trust-decision path.
+    """
+    import pathlib
+    import re as _re_t13
+
+    pkg = pathlib.Path(__file__).resolve().parents[2] / "src" / "integrity" / "cats"
+    forbidden = _re_t13.compile(r"^\s*(import|from)\s+(openai|anthropic|requests)\b")
+    offenders: list[str] = []
+    for p in pkg.rglob("*.py"):
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            if forbidden.match(line):
+                offenders.append(f"{p}:{i}:{line}")
+    assert not offenders, f"LLM/network SDK imports leaked into trust path: {offenders}"
+
+
+# =====================================================================
+# Task 14 — Lineage-not-score guard (no rank_snapshots writes)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_lineage_not_score(db):
+    """Wallet Safety Cat must NEVER write rank_snapshots.
+
+    Lineage-not-score discipline (V2_DESIGN_SPEC §10 invariant 6): customized-instance
+    Cat verdicts attach to the instance, not the canonical template. The Cat is purely
+    read-side — any DB write would be a contract violation.
+    """
+    from sqlalchemy import select, func
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    from src.db.models import RankSnapshot
+
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    before = (await db.execute(select(func.count()).select_from(RankSnapshot))).scalar_one()
+    _ = await compute_wallet_safety_cat(db, run.run_id)
+    after = (await db.execute(select(func.count()).select_from(RankSnapshot))).scalar_one()
+    assert before == after, "wallet_safety cat must not write rank_snapshots"
+
+
+# =====================================================================
+# Task 15 — HTTP router wiring + error mapping (no auth yet)
+# =====================================================================
+
+
+@pytest.fixture
+async def http_client(db):
+    """AsyncClient with get_db overridden to the test session.
+
+    Lets the FastAPI app handle requests with the same per-test SQLite session
+    as the conftest's `db` fixture, so reads from inside the route see the writes
+    the test seeded.
+    """
+    from httpx import ASGITransport, AsyncClient
+    from src.main import app
+    from src.db.engine import get_db
+
+    async def _override():
+        yield db
+
+    app.dependency_overrides[get_db] = _override
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+async def test_wallet_safety_cat_benchmarked_canonical_template_run_is_publicly_readable(
+    db, http_client,
+):
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    # Per spec §8 callout: flagship Agent.subject_type is customized_instance, not canonical_template.
+    bridge = await _seed_bridge_agent(
+        db, instance_id=inst.instance_id, subject_type="customized_instance",
+    )
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["trust_label"] == "benchmarked_canonical_template"
+    assert data["subject_type"] == "customized_instance"  # response lineage metadata only
+    assert data["result"] == "pass"
+
+
+async def test_wallet_safety_cat_returns_404_for_unknown_run_id_via_http(http_client):
+    resp = await http_client.get("/api/v1/cats/wallet_safety/99999")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "run_not_found"}
+
+
+async def test_wallet_safety_cat_returns_404_instance_unresolvable_via_http(db, http_client):
+    bridge = await _seed_bridge_agent(
+        db,
+        instance_id=None,
+        metadata_ref_override="garbage",
+        privy_user_id_override="garbage",
+    )
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "instance_unresolvable"}
+
+
+async def test_wallet_safety_cat_returns_422_for_completion_status_null_via_http(
+    db, http_client,
+):
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, completion_status=None)
+    await db.commit()
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"] == "run_not_final"
+    assert body["lifecycle_status"] == "running"
+
+
+async def test_wallet_safety_cat_v1_local_provider_runs_out_of_scope_via_http(
+    db, http_client,
+):
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, provider_type="local")
+    await db.commit()
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 422
+    assert resp.json() == {"error": "unsupported_provider_type", "provider_type": "local"}
+
+
+# =====================================================================
+# Task 16 — Owner-auth gate via get_current_user (trust_label-keyed)
+# =====================================================================
+
+
+async def test_wallet_safety_cat_benchmark_compatible_customized_instance_run_requires_owner_auth(
+    db, http_client,
+):
+    from fastapi.security import HTTPAuthorizationCredentials
+    from src.auth import get_current_user
+
+    tid = await _seed_template(db)
+    # Derive owner_ref via the same public auth surface the router uses
+    # (auth.get_current_user per spec §8) so the test contract matches
+    # production identity derivation exactly. Do NOT import private helpers.
+    owner_token = "owner-secret-token"
+    owner_creds = HTTPAuthorizationCredentials(scheme="Bearer", credentials=owner_token)
+    owner_user = await get_current_user(owner_creds)
+    owner_ref = owner_user.privy_user_id
+
+    inst = await _seed_instance(
+        db, template_id=tid,
+        trust_label="benchmark_compatible_customized_instance",
+        instance_owner_ref=owner_ref,
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    # 1. No auth → 401 (FastAPI dependency)
+    r1 = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert r1.status_code == 401, r1.text
+
+    # 2. Wrong-owner auth → 403 with named body
+    r2 = await http_client.get(
+        f"/api/v1/cats/wallet_safety/{run.run_id}",
+        headers={"Authorization": "Bearer not-the-owner"},
+    )
+    assert r2.status_code == 403
+    assert r2.json() == {"error": "not_instance_owner"}
+
+    # 3. Correct-owner auth → 200
+    r3 = await http_client.get(
+        f"/api/v1/cats/wallet_safety/{run.run_id}",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert r3.status_code == 200, r3.text
+    data = r3.json()
+    assert data["trust_label"] == "benchmark_compatible_customized_instance"
+    assert data["result"] == "pass"
+
+
+# =====================================================================
+# Task 17 — Defensive 422 for external_custom_runtime over HTTP
+# =====================================================================
+
+
+async def test_wallet_safety_cat_external_custom_runtime_returns_422_defensively_via_http(
+    db, http_client,
+):
+    """End-to-end HTTP regression-lock for the external_custom_runtime defensive 422.
+
+    Compute-level enforcement landed in Task 6 (UnsupportedTrustLabelError raised
+    inside resolve_run_and_instance). Task 15 wired the router's error-mapping.
+    This test verifies the full HTTP path returns 422 + the locked JSON body
+    BEFORE the auth gate runs (so the response shape is the same regardless
+    of bearer presence).
+    """
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="external_custom_runtime",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "error": "unsupported_trust_label",
+        "trust_label": "external_custom_runtime",
+    }
+
+
+# =====================================================================
+# Task 18 — 5xx hardening: unexpected exceptions return locked body
+# =====================================================================
+
+
+async def test_wallet_safety_cat_returns_500_internal_error_on_unexpected_exception(
+    db, http_client, monkeypatch,
+):
+    """Spec §8: '5xx must never leak free-text from the trust path.'
+
+    If anything inside the route raises an unexpected exception (resolver
+    failure, compute bug, DB outage), the response MUST be 500 with body
+    `{"error": "internal_error"}` — not FastAPI's default `{"detail": ...}`
+    and never a stack trace.
+    """
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    async def _boom(_db, _run_id):  # pragma: no cover — invoked via monkeypatch only
+        raise RuntimeError("synthetic compute failure with sensitive details")
+
+    monkeypatch.setattr("src.api.cats.compute_wallet_safety_cat", _boom)
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 500
+    assert resp.json() == {"error": "internal_error"}
+    # Body must NOT leak the exception text.
+    assert "synthetic compute failure" not in resp.text
+    assert "sensitive details" not in resp.text
+
+
+# =====================================================================
+# Task 18 — Defensive live-status check: non-live instances → 404
+# =====================================================================
+
+
+async def test_wallet_safety_cat_non_live_instance_returns_404_instance_unresolvable(
+    db, http_client,
+):
+    """Spec §9: 'only live is eligible for Cat — saga-failed instances are
+    excluded by the upstream challenge_service gate, but the Cat re-checks
+    defensively.'
+
+    Non-live instances collapse into the single 404 instance_unresolvable
+    rule (404 not 422 to avoid leaking operator-private lifecycle status to
+    anonymous callers — principled asymmetry with external_custom_runtime,
+    which uses 422 because trust_label is a public contract enum).
+
+    The non-live check must fire BEFORE the trust_label-keyed auth gate so
+    anonymous callers cannot probe instance lifecycle by sending requests
+    without auth.
+    """
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db,
+        template_id=tid,
+        # Default trust_label is benchmark_compatible_customized_instance —
+        # would normally trigger 401 (no auth) for the anonymous request.
+        # The non-live gate must fire FIRST and return 404 instead.
+        status="paused",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "instance_unresolvable"}
+    # Body must NOT leak the actual status value.
+    assert "paused" not in resp.text
+    assert "instance_not_live" not in resp.text

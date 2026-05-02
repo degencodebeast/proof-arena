@@ -155,7 +155,17 @@ class TestStrategyAuth:
                 json={"agent_name": "Bot", "system_prompt": "test"},
                 headers={"Authorization": f"Bearer {USER_TOKEN}"},
             )
-        assert captured_user_id == USER_TOKEN  # Not "stub-user"
+        # Task 41 fixpack F1 — bearer is derived to a bounded identity
+        # (bearer_sha256:<hex> for non-JWT tokens), never stored verbatim.
+        # Test intent preserved: identity comes from auth, not a stub.
+        import hashlib as _hashlib
+        expected = (
+            "bearer_sha256:"
+            + _hashlib.sha256(USER_TOKEN.encode()).hexdigest()
+        )
+        assert captured_user_id == expected
+        assert captured_user_id != USER_TOKEN  # raw bearer NOT stored
+        assert captured_user_id != "stub-user"
 
     def test_anti_spam_rejects(self):
         with pytest.MonkeyPatch.context() as mp:

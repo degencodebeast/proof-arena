@@ -127,6 +127,18 @@ class InstanceService:
         ``*_failed`` saga state and returns it so callers can inspect and
         route to operator repair (Task 14).
         """
+        # Step 0 — owner_ref length guard (Task 41 fixpack F2). Defense
+        # in depth: `get_current_user` already returns a bounded identity
+        # ≤128 chars (F1), but any future caller bypassing F1 still gets
+        # a controlled failure here instead of a raw asyncpg
+        # `StringDataRightTruncationError` 500 from the INSERT.
+        # `agent_instances.instance_owner_ref` is `varchar(128)`.
+        if len(owner_ref) > 128:
+            raise InstanceDeployError(
+                SagaFailureReason.PROVISIONING_FAILED.value,
+                f"owner_ref length {len(owner_ref)} exceeds 128-char limit",
+            )
+
         # Step 1 — validate spec.
         validation = self.policy_engine.validate_spec(effective_config)
         if not validation.ok:

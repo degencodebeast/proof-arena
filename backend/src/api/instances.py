@@ -65,15 +65,31 @@ def get_instance_service(
 
     # Local imports so unit tests that override this factory don't pay
     # the underlying SDK import cost.
-    from src.policy.engine import InstancePolicyEngine
+    from src.policy.engine import (
+        InstancePolicyEngine,
+    )
     from src.runtime.agentos import AgentOSRuntime
-    from src.services.privy_signing import PrivySigningService
+    from src.services.privy_signing import (
+        InvalidPrivyAuthorizationKeyError,
+        PrivySigningService,
+    )
     from src.services.wallet_service import WalletService
 
-    signing = PrivySigningService(
-        private_key_pem=settings.PRIVY_AUTHORIZATION_PRIVATE_KEY,
-        app_id=settings.PRIVY_APP_ID,
-    )
+    # Task 41 fixpack F3 — Privy readiness hardening. A non-empty but
+    # corrupt PEM (e.g. Coolify "developer mode" placeholder text
+    # accidentally exported into .env) used to slip past the env-empty
+    # check above and surface as an unhandled 500 from
+    # `PrivySigningService.__init__`. Translate construction failure
+    # into a controlled None → endpoint returns 503. No key material
+    # is logged here — `InvalidPrivyAuthorizationKeyError` is
+    # envelope-only by design.
+    try:
+        signing = PrivySigningService(
+            private_key_pem=settings.PRIVY_AUTHORIZATION_PRIVATE_KEY,
+            app_id=settings.PRIVY_APP_ID,
+        )
+    except InvalidPrivyAuthorizationKeyError:
+        return None
     wallet_service = WalletService(signing_service=signing)
     runtime = AgentOSRuntime(
         api_url=settings.AGENTOS_API_URL,

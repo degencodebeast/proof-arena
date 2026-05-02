@@ -87,8 +87,17 @@ def _build_canonical_message(
 
 
 def _normalize_pem(value: str) -> str:
-    """Turn a single-line env PEM (with literal ``\\n``) back into real PEM."""
-    return value.replace("\\n", "\n")
+    """Turn env PEM escapes back into real PEM.
+
+    Tolerates three on-the-wire forms operators commonly produce:
+    - real multiline PEM (no replacement needed)
+    - single-escaped ``\\n`` (typical single-line ``.env`` format)
+    - double-escaped ``\\\\n`` (Coolify developer-mode JSON-escaping)
+
+    Order matters: replace the double-escaped form first so the longer
+    pattern wins, then collapse any remaining single-escaped ``\\n``.
+    """
+    return value.replace("\\\\n", "\n").replace("\\n", "\n")
 
 
 def _load_and_validate_key(pem: str) -> EllipticCurvePrivateKey:
