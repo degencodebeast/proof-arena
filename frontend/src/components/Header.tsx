@@ -8,16 +8,11 @@ function AuthSection() {
 
   if (authenticated) {
     return (
-      <>
-        <Link href="/submit" className="text-emerald-400 hover:text-emerald-300 font-medium transition">
-          Submit Strategy
-        </Link>
-        <button onClick={logout} className="text-zinc-500 hover:text-zinc-300 text-xs font-mono transition">
-          {user?.wallet?.address
-            ? `${user.wallet.address.slice(0, 4)}...${user.wallet.address.slice(-4)}`
-            : 'Disconnect'}
-        </button>
-      </>
+      <button onClick={logout} className="text-zinc-500 hover:text-zinc-300 text-xs font-mono transition">
+        {user?.wallet?.address
+          ? `${user.wallet.address.slice(0, 4)}...${user.wallet.address.slice(-4)}`
+          : 'Disconnect'}
+      </button>
     );
   }
 
@@ -48,17 +43,14 @@ export function Header() {
         </Link>
 
         <div className="flex gap-5 items-center text-sm">
-          <Link href="/challenges" className="text-zinc-400 hover:text-white transition">
-            Challenges
+          <Link href="/templates" className="text-zinc-400 hover:text-white transition">
+            Templates
+          </Link>
+          <Link href="/flagship" className="text-zinc-400 hover:text-white transition">
+            Flagship
           </Link>
           <Link href="/leaderboard" className="text-zinc-400 hover:text-white transition">
             Leaderboard
-          </Link>
-          <Link href="/builder" className="text-zinc-400 hover:text-white transition">
-            Builder
-          </Link>
-          <Link href="/quickstart" className="text-zinc-400 hover:text-white transition">
-            Quickstart
           </Link>
 
           <AuthSectionSafe />
