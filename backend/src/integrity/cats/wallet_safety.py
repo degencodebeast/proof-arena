@@ -159,7 +159,15 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
     agent, instance = await _resolve_instance(db, run.agent_id)
     if instance.trust_label == "external_custom_runtime":
         raise UnsupportedTrustLabelError(instance.trust_label)
-    # All-pass branch (subsequent tasks expand for failures + off-scope).
+    if run.invalid_reason in WALLET_SAFETY_REASONS:
+        return _compose(
+            run=run, agent=agent, instance=instance,
+            failing_check_id=_REASON_TO_CHECK[run.invalid_reason],
+            reason=run.invalid_reason,
+            critique="",  # populated in Task 10
+            off_scope_invalid_reason=None,
+        )
+    # All-pass + off-scope branches handled in subsequent tasks.
     return _compose(
         run=run, agent=agent, instance=instance,
         failing_check_id=None, reason=None, critique="",

@@ -269,3 +269,39 @@ async def test_wallet_safety_cat_pass_when_run_complete_no_invalid_reason(db):
     assert resp.trust_label == "benchmark_compatible_customized_instance"
     assert all(c.result == "pass" for c in resp.checks)
     assert len(resp.checks) == 10
+
+
+# =====================================================================
+# Task 8 — Fail verdicts for the five wallet-safety RunInvalidReason members
+# =====================================================================
+
+
+@pytest.mark.parametrize(
+    "reason,expected_check_id",
+    [
+        ("mainnet_guard_triggered",          "mainnet_guard_check"),
+        ("wallet_policy_rejected",           "wallet_policy_check"),
+        ("authorization_signature_rejected", "authorization_signature_check"),
+        ("hosted_wallet_unavailable",        "hosted_wallet_available_check"),
+        ("invalid_action_attempts_exceeded", "invalid_action_attempts_check"),
+    ],
+)
+async def test_wallet_safety_cat_fails_on_wallet_safety_reasons(db, reason, expected_check_id):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid", invalid_reason=reason,
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "fail"
+    assert resp.reason == reason
+    assert resp.run_completion_status == "invalid"
+    assert resp.off_scope_invalid_reason is None
+    failing = [c for c in resp.checks if c.result == "fail"]
+    assert len(failing) == 1
+    assert failing[0].check_id == expected_check_id
