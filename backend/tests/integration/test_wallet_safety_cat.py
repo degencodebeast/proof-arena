@@ -472,3 +472,107 @@ async def test_wallet_safety_cat_lineage_not_score(db):
     _ = await compute_wallet_safety_cat(db, run.run_id)
     after = (await db.execute(select(func.count()).select_from(RankSnapshot))).scalar_one()
     assert before == after, "wallet_safety cat must not write rank_snapshots"
+
+
+# =====================================================================
+# Task 15 — HTTP router wiring + error mapping (no auth yet)
+# =====================================================================
+
+
+@pytest.fixture
+async def http_client(db):
+    """AsyncClient with get_db overridden to the test session.
+
+    Lets the FastAPI app handle requests with the same per-test SQLite session
+    as the conftest's `db` fixture, so reads from inside the route see the writes
+    the test seeded.
+    """
+    from httpx import ASGITransport, AsyncClient
+    from src.main import app
+    from src.db.engine import get_db
+
+    async def _override():
+        yield db
+
+    app.dependency_overrides[get_db] = _override
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as c:
+            yield c
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+async def test_wallet_safety_cat_benchmarked_canonical_template_run_is_publicly_readable(
+    db, http_client,
+):
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    # Per spec §8 callout: flagship Agent.subject_type is customized_instance, not canonical_template.
+    bridge = await _seed_bridge_agent(
+        db, instance_id=inst.instance_id, subject_type="customized_instance",
+    )
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["trust_label"] == "benchmarked_canonical_template"
+    assert data["subject_type"] == "customized_instance"  # response lineage metadata only
+    assert data["result"] == "pass"
+
+
+async def test_wallet_safety_cat_returns_404_for_unknown_run_id_via_http(http_client):
+    resp = await http_client.get("/api/v1/cats/wallet_safety/99999")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "run_not_found"}
+
+
+async def test_wallet_safety_cat_returns_404_instance_unresolvable_via_http(db, http_client):
+    bridge = await _seed_bridge_agent(
+        db,
+        instance_id=None,
+        metadata_ref_override="garbage",
+        privy_user_id_override="garbage",
+    )
+    run = await _seed_run(db, agent_id=bridge.agent_id)
+    await db.commit()
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "instance_unresolvable"}
+
+
+async def test_wallet_safety_cat_returns_422_for_completion_status_null_via_http(
+    db, http_client,
+):
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, completion_status=None)
+    await db.commit()
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"] == "run_not_final"
+    assert body["lifecycle_status"] == "running"
+
+
+async def test_wallet_safety_cat_v1_local_provider_runs_out_of_scope_via_http(
+    db, http_client,
+):
+    tid = await _seed_template(db)
+    inst = await _seed_instance(
+        db, template_id=tid, trust_label="benchmarked_canonical_template",
+    )
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, provider_type="local")
+    await db.commit()
+    resp = await http_client.get(f"/api/v1/cats/wallet_safety/{run.run_id}")
+    assert resp.status_code == 422
+    assert resp.json() == {"error": "unsupported_provider_type", "provider_type": "local"}
