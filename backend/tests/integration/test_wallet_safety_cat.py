@@ -241,3 +241,31 @@ async def test_wallet_safety_cat_external_custom_runtime_returns_422_defensively
     with pytest.raises(UnsupportedTrustLabelError) as ei:
         await compute_wallet_safety_cat(db, run.run_id)
     assert ei.value.trust_label == "external_custom_runtime"
+
+
+# =====================================================================
+# Task 7 — Pass verdict when run is complete and no invalid_reason
+# =====================================================================
+
+
+async def test_wallet_safety_cat_pass_when_run_complete_no_invalid_reason(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid, trust_label="benchmark_compatible_customized_instance")
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, completion_status="complete", invalid_reason=None)
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.result == "pass"
+    assert resp.reason is None
+    assert resp.critique == ""
+    assert resp.run_completion_status == "complete"
+    assert resp.off_scope_invalid_reason is None
+    assert resp.scope_note is None
+    assert resp.run_id == run.run_id
+    assert resp.instance_id == inst.instance_id
+    assert resp.subject_type == "customized_instance"  # from Agent.subject_type
+    assert resp.trust_label == "benchmark_compatible_customized_instance"
+    assert all(c.result == "pass" for c in resp.checks)
+    assert len(resp.checks) == 10
