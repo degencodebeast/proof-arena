@@ -4,7 +4,9 @@ Spec: docs/superpowers/specs/2026-04-29-wallet-safety-cat-proof-arena-spec.md
 Trust path: deterministic only. NO LLM SDK imports anywhere in this module.
 """
 from __future__ import annotations
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from src.db.models import Run
 from src.integrity.cats.schemas import WalletSafetyCatResponse
 
 
@@ -38,4 +40,8 @@ class UnsupportedTrustLabelError(WalletSafetyCatError):
 
 async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafetyCatResponse:
     """Deterministic Cat compute. Raises domain exceptions; never returns HTTP-shaped errors."""
-    raise NotImplementedError  # Stub — replaced incrementally starting in Task 2.
+    run = (await db.execute(select(Run).where(Run.run_id == run_id))).scalar_one_or_none()
+    if run is None:
+        raise RunNotFoundError(run_id)
+    # Subsequent tasks (3+) add finality / provider / bridge / verdict logic.
+    raise NotImplementedError
