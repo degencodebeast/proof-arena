@@ -420,3 +420,27 @@ async def test_wallet_safety_cat_evidence_block_includes_run_log_hash(db):
     assert resp.evidence.run_log_hash == "b" * 64
     assert resp.evidence.primary_event_id is None
     assert resp.evidence.verifier_url is None
+
+
+# =====================================================================
+# Task 13 — No-LLM-imports static guard
+# =====================================================================
+
+
+def test_wallet_safety_cat_no_llm_imports_in_trust_path():
+    """Static filesystem audit: integrity/cats/ must NOT import openai/anthropic/requests.
+
+    Trust path discipline: deterministic only. LLM judges may layer on top later as
+    explanation helpers, but never in the trust-decision path.
+    """
+    import pathlib
+    import re as _re_t13
+
+    pkg = pathlib.Path(__file__).resolve().parents[2] / "src" / "integrity" / "cats"
+    forbidden = _re_t13.compile(r"^\s*(import|from)\s+(openai|anthropic|requests)\b")
+    offenders: list[str] = []
+    for p in pkg.rglob("*.py"):
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            if forbidden.match(line):
+                offenders.append(f"{p}:{i}:{line}")
+    assert not offenders, f"LLM/network SDK imports leaked into trust path: {offenders}"
