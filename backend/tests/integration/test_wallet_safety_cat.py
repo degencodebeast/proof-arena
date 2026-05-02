@@ -365,3 +365,39 @@ async def test_wallet_safety_cat_critique_field_bounded_to_512_chars_and_drawn_f
     expected = FAILURE_COPY_MAP[RunInvalidReason.WALLET_POLICY_REJECTED]["description"]
     assert resp.critique == expected
     assert len(resp.critique) <= 512
+
+
+# =====================================================================
+# Task 11 — Per-check check_id discipline lock
+# =====================================================================
+
+
+import re as _re_t11  # alias to avoid shadowing any earlier `re` import in the test file
+
+
+async def test_wallet_safety_cat_envelope_subcheck_ids_are_local_not_runinvalidreason(db):
+    from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
+    from src.integrity.failure_taxonomy import RunInvalidReason
+
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(
+        db, agent_id=bridge.agent_id,
+        completion_status="invalid",
+        invalid_reason="wallet_policy_rejected",
+    )
+    await db.commit()
+
+    resp = await compute_wallet_safety_cat(db, run.run_id)
+    runinvalid_values = {m.value for m in RunInvalidReason}
+    pat = _re_t11.compile(r"^[a-z_]+_check$")
+    for c in resp.checks:
+        assert pat.match(c.check_id), f"check_id must match snake_case_check pattern: {c.check_id}"
+        assert c.check_id not in runinvalid_values, (
+            f"check_id {c.check_id} leaked a RunInvalidReason value"
+        )
+    # Per-check object exposes ONLY check_id + result. No reason field at check level.
+    failing = [c for c in resp.checks if c.result == "fail"]
+    assert len(failing) == 1
+    assert set(failing[0].model_dump().keys()) == {"check_id", "result"}
