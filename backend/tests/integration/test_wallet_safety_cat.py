@@ -147,3 +147,24 @@ async def test_wallet_safety_cat_returns_404_for_unknown_run_id(db):
     )
     with pytest.raises(RunNotFoundError):
         await compute_wallet_safety_cat(db, 99999)
+
+
+# =====================================================================
+# Task 3 — 422 run_not_final when Run.completion_status IS NULL
+# =====================================================================
+
+
+async def test_wallet_safety_cat_returns_422_for_completion_status_null(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, RunNotFinalError,
+    )
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, completion_status=None)
+    await db.commit()
+
+    with pytest.raises(RunNotFinalError) as ei:
+        await compute_wallet_safety_cat(db, run.run_id)
+    # Must surface the lifecycle status (reference-only) in the error.
+    assert ei.value.lifecycle_status == "running"

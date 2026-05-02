@@ -43,5 +43,7 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
     run = (await db.execute(select(Run).where(Run.run_id == run_id))).scalar_one_or_none()
     if run is None:
         raise RunNotFoundError(run_id)
-    # Subsequent tasks (3+) add finality / provider / bridge / verdict logic.
+    if run.completion_status is None:
+        raise RunNotFinalError(lifecycle_status=run.status)
+    # Subsequent tasks (4+) add provider / bridge / verdict logic.
     raise NotImplementedError
