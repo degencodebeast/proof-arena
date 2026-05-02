@@ -168,3 +168,23 @@ async def test_wallet_safety_cat_returns_422_for_completion_status_null(db):
         await compute_wallet_safety_cat(db, run.run_id)
     # Must surface the lifecycle status (reference-only) in the error.
     assert ei.value.lifecycle_status == "running"
+
+
+# =====================================================================
+# Task 4 — 422 unsupported_provider_type for V1 local runs
+# =====================================================================
+
+
+async def test_wallet_safety_cat_v1_local_provider_runs_out_of_scope(db):
+    from src.integrity.cats.wallet_safety import (
+        compute_wallet_safety_cat, UnsupportedProviderTypeError,
+    )
+    tid = await _seed_template(db)
+    inst = await _seed_instance(db, template_id=tid)
+    bridge = await _seed_bridge_agent(db, instance_id=inst.instance_id)
+    run = await _seed_run(db, agent_id=bridge.agent_id, provider_type="local")
+    await db.commit()
+
+    with pytest.raises(UnsupportedProviderTypeError) as ei:
+        await compute_wallet_safety_cat(db, run.run_id)
+    assert ei.value.provider_type == "local"

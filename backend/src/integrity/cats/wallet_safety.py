@@ -45,5 +45,7 @@ async def compute_wallet_safety_cat(db: AsyncSession, run_id: int) -> WalletSafe
         raise RunNotFoundError(run_id)
     if run.completion_status is None:
         raise RunNotFinalError(lifecycle_status=run.status)
-    # Subsequent tasks (4+) add provider / bridge / verdict logic.
+    if run.provider_type != "hosted_instance":
+        raise UnsupportedProviderTypeError(run.provider_type)
+    # Subsequent tasks (5+) add bridge / verdict logic.
     raise NotImplementedError
