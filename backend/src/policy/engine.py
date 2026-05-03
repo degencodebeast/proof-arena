@@ -144,7 +144,7 @@ def _validate_rebalance_envelope_shape(spec: dict) -> list[str]:
                     f"target_allocations[{mint!r}]={w} must be in [0.0, 1.0]"
                 )
             total += float(w)
-        if abs(total - 1.0) > 0.01:
+        if abs(total - 1.0) > 0.01 + 1e-9:  # closed interval: 1e-9 absorbs float drift
             errors.append(
                 f"target_allocations sum {total} must be 1.0 ± 0.01"
             )

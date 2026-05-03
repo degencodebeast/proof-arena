@@ -99,3 +99,59 @@ def test_zero_target_allocation_value_accepted():
     })
     result = validate_spec_for_template("rebalance_executor_v1", spec)
     assert result.ok, f"zero-weight allocations must be accepted; errors: {result.errors}"
+
+
+def test_target_allocations_sum_at_lower_closed_boundary_accepted():
+    """Spec §5.1 closed interval: sum exactly 0.99 must be ACCEPTED.
+
+    Bug: naive `abs(total - 1.0) > 0.01` rejects 0.99 due to float drift
+    (0.49 + 0.50 + 0.0 = 0.9899999999999999, abs delta ≈ 0.010000000000000009 > 0.01).
+    """
+    spec = make_rebalance_envelope(target_allocations={
+        "So11111111111111111111111111111111111111112":  0.49,
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 0.50,
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": 0.0,
+    })
+    result = validate_spec_for_template("rebalance_executor_v1", spec)
+    assert result.ok, (
+        f"sum=0.99 must be accepted (closed interval per spec §5.1); "
+        f"errors: {result.errors}"
+    )
+
+
+def test_target_allocations_sum_at_upper_closed_boundary_accepted():
+    """Spec §5.1 closed interval: sum exactly 1.01 must be ACCEPTED."""
+    spec = make_rebalance_envelope(target_allocations={
+        "So11111111111111111111111111111111111111112":  0.51,
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 0.50,
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": 0.0,
+    })
+    result = validate_spec_for_template("rebalance_executor_v1", spec)
+    assert result.ok, (
+        f"sum=1.01 must be accepted (closed interval per spec §5.1); "
+        f"errors: {result.errors}"
+    )
+
+
+def test_target_allocations_sum_just_below_lower_boundary_rejected():
+    """Spec §5.1: sum=0.98 is OUTSIDE the closed interval and must be REJECTED."""
+    spec = make_rebalance_envelope(target_allocations={
+        "So11111111111111111111111111111111111111112":  0.48,
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 0.50,
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": 0.0,
+    })
+    result = validate_spec_for_template("rebalance_executor_v1", spec)
+    assert not result.ok
+    assert any("sum" in e.lower() and "1.0" in e for e in result.errors)
+
+
+def test_target_allocations_sum_just_above_upper_boundary_rejected():
+    """Spec §5.1: sum=1.02 is OUTSIDE the closed interval and must be REJECTED."""
+    spec = make_rebalance_envelope(target_allocations={
+        "So11111111111111111111111111111111111111112":  0.52,
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 0.50,
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": 0.0,
+    })
+    result = validate_spec_for_template("rebalance_executor_v1", spec)
+    assert not result.ok
+    assert any("sum" in e.lower() and "1.0" in e for e in result.errors)
