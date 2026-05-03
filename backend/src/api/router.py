@@ -13,6 +13,7 @@ from src.api.instances import router as instances_router
 from src.api.templates import router as templates_router
 from src.api.flagship import router as flagship_router
 from src.api.cats import router as cats_router
+from src.api.verifier import router as verifier_router
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(leaderboard_router, tags=["leaderboard"])
@@ -30,3 +31,4 @@ api_router.include_router(instances_router)
 api_router.include_router(templates_router)
 api_router.include_router(flagship_router)
 api_router.include_router(cats_router, tags=["cats"])
+api_router.include_router(verifier_router, tags=["verifier"])
