@@ -362,3 +362,75 @@ async def test_verifier_v0_lineage_template_block_matches_agent_template_row(
     assert template_block["template_version_at_deploy"] == instance.template_version_at_deploy
     assert template_block["description"] == template_row.description
     assert template_block["is_deployable"] == bool(template_row.is_deployable)
+
+
+from datetime import datetime, timezone
+from src.db.models import VerificationArtifact
+
+
+async def _seed_verification_artifact(
+    db: AsyncSession,
+    *,
+    run_id: int,
+    artifact_type: str,
+    content_hash: str,
+    uri_or_ref: str = "s3://internal-bucket/secret-path/blob.json",
+) -> VerificationArtifact:
+    artifact = VerificationArtifact(
+        run_id=run_id,
+        artifact_type=artifact_type,
+        uri_or_ref=uri_or_ref,
+        content_hash=content_hash,
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(artifact)
+    await db.commit()
+    await db.refresh(artifact)
+    return artifact
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_evidence_block_includes_run_log_hash_and_artifact_metadata_only(
+    db, http_client,
+):
+    """evidence.run_log_hash mirrors Run.run_log_hash; artifact entries
+    expose only {artifact_id, artifact_type, content_hash, created_at}.
+    uri_or_ref must NOT appear (private storage-layout)."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    a1 = await _seed_verification_artifact(
+        db, run_id=run.run_id,
+        artifact_type="challenge_config",
+        content_hash="c" * 64,
+        uri_or_ref="s3://internal-bucket/MUST-NOT-LEAK.json",
+    )
+    a2 = await _seed_verification_artifact(
+        db, run_id=run.run_id,
+        artifact_type="settlement_record",
+        content_hash="d" * 64,
+    )
+
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["evidence"]["run_log_hash"] == run.run_log_hash
+
+    artifacts = body["evidence"]["verification_artifacts"]
+    assert len(artifacts) == 2
+    assert {a["artifact_id"] for a in artifacts} == {a1.artifact_id, a2.artifact_id}
+    for entry in artifacts:
+        assert set(entry.keys()) == {
+            "artifact_id", "artifact_type", "content_hash", "created_at",
+        }
+        # Defense-in-depth: the private uri_or_ref string never appears.
+        assert "MUST-NOT-LEAK" not in resp.text
+        assert "uri_or_ref" not in entry
