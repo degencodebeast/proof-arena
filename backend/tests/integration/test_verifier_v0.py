@@ -236,3 +236,24 @@ async def test_verifier_v0_external_custom_runtime_returns_422_defensively_via_h
         "error": "unsupported_trust_label",
         "trust_label": "external_custom_runtime",
     }
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_non_live_instance_returns_404_instance_unresolvable_via_http(
+    db, http_client,
+):
+    """A paused/torn-down instance must collapse to 404 instance_unresolvable.
+
+    Locks the asymmetric-with-trust_label rule (spec §8): trust_label is a
+    public contract enum so 422 is fine, but instance.status is operational
+    so non-live cases collapse to the bridge-failure 404.
+    """
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id, status="paused",
+    )
+    agent = await _seed_bridge_agent(db, instance_id=instance.instance_id)
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "instance_unresolvable"}
