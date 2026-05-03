@@ -553,3 +553,36 @@ async def test_verifier_v0_benchmark_compatible_customized_instance_run_requires
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["lineage"]["trust_label"] == "benchmark_compatible_customized_instance"
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_returns_500_internal_error_on_unexpected_exception(
+    db, http_client, monkeypatch,
+):
+    """Unexpected exceptions must collapse to {"error": "internal_error"} with
+    no internal exception text leaking. HTTPException remains exempt — that's
+    tested in Task 10's Case 1 (401 propagates unmodified)."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+
+    secret = "INTERNAL-LEAKY-DETAIL-MUST-NOT-APPEAR"
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(
+        "src.api.verifier.build_verifier_run_response", _boom,
+    )
+
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 500
+    assert resp.json() == {"error": "internal_error"}
+    assert secret not in resp.text
