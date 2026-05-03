@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.engine import get_db
 from src.db.models import Agent, AgentInstance, AgentTemplate, Run
 from src.main import app
+from src.integrity.cats.wallet_safety import compute_wallet_safety_cat
 
 
 _ENV = json.dumps({
@@ -257,3 +258,47 @@ async def test_verifier_v0_non_live_instance_returns_404_instance_unresolvable_v
     resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
     assert resp.status_code == 404
     assert resp.json() == {"error": "instance_unresolvable"}
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_benchmarked_canonical_template_run_is_publicly_readable(
+    db, http_client,
+):
+    """benchmarked_canonical_template runs are public — no Authorization header.
+
+    Asserts: 200, verifier_version=="v0", run/lineage/evidence/cats blocks
+    present, cats.wallet_safety equals compute_wallet_safety_cat output.
+    """
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+        instance_owner_ref="platform-authority",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+
+    # No bearer header — public read.
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["verifier_version"] == "v0"
+    assert body["run"]["run_id"] == run.run_id
+    assert body["run"]["completion_status"] == "complete"
+    assert body["run"]["provider_type"] == "hosted_instance"
+
+    assert body["lineage"]["instance_id"] == instance.instance_id
+    assert body["lineage"]["trust_label"] == "benchmarked_canonical_template"
+    assert body["lineage"]["subject_type"] == "canonical_template"
+    assert body["lineage"]["template"]["template_key"] == "swap_executor_v1"
+
+    assert body["evidence"]["run_log_hash"] == run.run_log_hash
+    assert body["evidence"]["run_event_count"] == 0
+    assert body["evidence"]["verification_artifacts"] == []
+
+    expected_cat = await compute_wallet_safety_cat(db, run.run_id)
+    assert body["cats"]["wallet_safety"] == expected_cat.model_dump(mode="json")
