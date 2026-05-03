@@ -7,11 +7,11 @@ surfaces flagship trust-label lineage when available.
 Boundary rules (V2 spec §9, §10 + task-tree cleanup invariants):
 
 - **Zero on-chain work.** Templates live off-chain only.
-- **Envelope lock.** ``allowed_fields_json`` must match the V2 5-field
-  customization envelope (``allowed_token_universe``, ``max_slippage_bps``,
-  ``max_position_size``, ``max_iterations``, ``max_runtime_seconds``) exactly.
-  Any drift is rejected at registration time via ``_ALLOWED_ENVELOPE_FIELDS``
-  from ``policy/engine.py``.
+- **Envelope lock.** ``allowed_fields_json`` must match the envelope set for
+  the template's ``template_key`` per ``TEMPLATE_ENVELOPE_REGISTRY`` in
+  ``policy/engine.py``. Swap registrations resolve to the V2 5-field envelope;
+  rebalance registrations resolve to the V0 7-field envelope. Any drift is
+  rejected at registration time via ``_validate_allowed_fields_for_template``.
 - **Trust-label source of truth.** ``get_template_with_flagship_info`` reads
   the flagship trust label from ``agent_instances.trust_label`` (filtered to
   the live flagship instance for the template). ``Agent`` has no
@@ -37,6 +37,7 @@ from src.policy.engine import (
     InstancePolicyEngine,
     _ALLOWED_ENVELOPE_FIELDS,
     TEMPLATE_ENVELOPE_REGISTRY,
+    validate_spec_for_template,
 )
 
 
@@ -198,13 +199,8 @@ class TemplateService:
                 as-is so callers can classify accurately; only duplicate
                 ``template_key`` is rewritten to a domain error.
         """
-        if template_key in TEMPLATE_ENVELOPE_REGISTRY:
-            self._validate_allowed_fields_for_template(template_key, allowed_fields_json)
-        else:
-            # Legacy fallback for template_key values not yet in the registry:
-            # validate against the swap envelope for backward compatibility.
-            self._validate_allowed_fields(allowed_fields_json)
-        self._validate_default_config(default_config_json)
+        _validate_allowed_fields_for_template(template_key, allowed_fields_json)
+        self._validate_default_config(template_key, default_config_json)
 
         # Explicit pre-check so we classify duplicate-key errors without
         # guessing at IntegrityError semantics (which vary across SQLite /
@@ -250,14 +246,6 @@ class TemplateService:
         return template
 
     @staticmethod
-    def _validate_allowed_fields_for_template(
-        template_key: str,
-        allowed_fields_json: str,
-    ) -> None:
-        """Template-aware allowed-fields validator.  Delegates to the module-level function."""
-        _validate_allowed_fields_for_template(template_key, allowed_fields_json)
-
-    @staticmethod
     def _validate_allowed_fields(allowed_fields_json: str) -> None:
         """Legacy back-compat shim — delegates to the swap envelope.
 
@@ -267,12 +255,11 @@ class TemplateService:
         """
         _validate_allowed_fields_for_template("swap_executor_v1", allowed_fields_json)
 
-    def _validate_default_config(self, default_config_json: str) -> None:
-        """Parse ``default_config_json`` and enforce policy-engine validation.
+    def _validate_default_config(self, template_key: str, default_config_json: str) -> None:
+        """Parse ``default_config_json`` and enforce template-aware policy validation.
 
         The decoded value must be a JSON object and must satisfy
-        ``InstancePolicyEngine.validate_spec`` (V2 5-field envelope + range
-        bounds).
+        ``validate_spec_for_template`` for the given ``template_key``.
         """
         try:
             decoded = json.loads(default_config_json)
@@ -284,10 +271,10 @@ class TemplateService:
             raise TemplateValidationError(
                 "default_config_json must decode to a JSON object"
             )
-        result = self.policy_engine.validate_spec(decoded)
+        result = validate_spec_for_template(template_key, decoded)
         if not result.ok:
             raise TemplateValidationError(
-                "default_config failed V2 policy validation: "
+                "default_config failed policy validation: "
                 + "; ".join(result.errors)
             )
 
