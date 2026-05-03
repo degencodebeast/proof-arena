@@ -1,6 +1,8 @@
 """Spec §10 test 2 — rebalance envelope range/integrity checks (Task 3)."""
 from __future__ import annotations
 
+import pytest
+
 from src.policy.engine import validate_spec_for_template
 from tests._rebalance_helpers import make_rebalance_envelope
 
@@ -153,3 +155,39 @@ def test_target_allocations_sum_just_above_upper_boundary_rejected():
     result = validate_spec_for_template("rebalance_executor_v1", spec)
     assert not result.ok
     assert any("sum" in e.lower() and "1.0" in e for e in result.errors)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("rebalance_threshold_bps", True),
+    ("rebalance_threshold_bps", False),
+    ("max_slippage_bps", True),
+    ("max_slippage_bps", False),
+    ("max_trade_value", True),
+    ("max_trade_value", False),
+    ("max_position_weight", True),
+    ("max_position_weight", False),
+    ("dry_run", 1),
+    ("dry_run", 0),
+])
+def test_bool_rejection_on_numeric_and_dry_run_fields(field, value):
+    """Sub-spec INV-3..INV-7 + INV-1 type-guard hardening — regression-lock.
+
+    Python's `True`/`False` are `isinstance(int)==True`. A naive int range
+    check would let `True` pass any numeric field whose range includes 1.
+    The validator's `isinstance(x, bool)` short-circuit MUST fire BEFORE the
+    `isinstance(x, int|float)` check on `rebalance_threshold_bps`,
+    `max_slippage_bps`, `max_trade_value`, and `max_position_weight`.
+    Symmetrically, `dry_run` MUST be strict bool — `1` and `0` MUST be REJECTED.
+
+    This is a REGRESSION-LOCK test. Production code already enforces all 10
+    cases. If this test goes RED on first run, the bool/int short-circuits
+    have drifted — halt under the regression-lock gate and investigate
+    instead of relaxing the assertion or patching production.
+    """
+    spec = make_rebalance_envelope(**{field: value})
+    result = validate_spec_for_template("rebalance_executor_v1", spec)
+    assert not result.ok, (
+        f"{field}={value!r} (type={type(value).__name__}) must be REJECTED; "
+        f"production drift detected — bool/int type-guard short-circuit "
+        f"may have been removed in a recent cleanup pass"
+    )
