@@ -117,3 +117,33 @@ def test_template_envelope_registry_disjoint_sets():
     assert rebalance_only.isdisjoint(swap), (
         f"rebalance-only fields leaked into swap envelope: {rebalance_only & swap}"
     )
+
+
+def test_unhashable_template_key_returns_ok_false_not_raises():
+    """Bug fix: list/dict template_key must NOT raise TypeError from membership test.
+
+    Plan requires non-string template_key handling; the original snippet had
+    `not isinstance(template_key, str)`. Removing it caused TypeError leaks for
+    unhashable inputs. Restore deterministic ok=False with `unknown template_key`.
+    """
+    # Unhashable list — would have raised TypeError under the broken impl.
+    result_list = validate_spec_for_template(["x"], {})
+    assert not result_list.ok
+    assert any("unknown template_key" in e for e in result_list.errors)
+
+    # Unhashable dict — same path.
+    result_dict = validate_spec_for_template({"x": 1}, {})
+    assert not result_dict.ok
+    assert any("unknown template_key" in e for e in result_dict.errors)
+
+
+def test_hashable_non_string_template_key_returns_ok_false():
+    """Hashable non-strings (None, int) must also return ok=False with the
+    same `unknown template_key` error wording — consistent surface across
+    all non-string inputs."""
+    for bad_key in (None, 42, 0):
+        result = validate_spec_for_template(bad_key, {})
+        assert not result.ok, f"Expected ok=False for template_key={bad_key!r}"
+        assert any("unknown template_key" in e for e in result.errors), (
+            f"Expected 'unknown template_key' in errors for {bad_key!r}; got {result.errors}"
+        )

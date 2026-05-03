@@ -110,7 +110,7 @@ def validate_spec_for_template(template_key: str, spec: dict[str, Any]) -> Valid
 
     Does not mutate `spec`.
     """
-    if template_key not in TEMPLATE_ENVELOPE_REGISTRY:
+    if not isinstance(template_key, str) or template_key not in TEMPLATE_ENVELOPE_REGISTRY:
         return ValidationResult(errors=[
             f"unknown template_key {template_key!r}: must be one of "
             f"{sorted(TEMPLATE_ENVELOPE_REGISTRY.keys())}"
