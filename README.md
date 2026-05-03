@@ -93,6 +93,22 @@ Four rules that define the product:
 - **Same base model for all contestants** — each challenge fixes the provider and model. Strategies differ, not models.
 - **Completion validity is separate from lifecycle status** — a run can finish (`completed`) but be benchmark-invalid (`incomplete`) if it didn't complete the required basket.
 
+## Public Trust/Eval API (V2.1, shipped)
+
+Two read-only endpoints expose proof / evidence JSON for completed V2 hosted-instance runs. Both ship on `main` and are deterministic, no-LLM-in-trust-path, no-DB-writes, no-`rank_snapshots`-writes, with no on-chain anchoring claim.
+
+| Endpoint | What it returns |
+|----------|----------------|
+| `GET /api/v1/cats/wallet_safety/{run_id}` | **Wallet Safety Cat** — bounded pass/fail verdict over a completed hosted-instance run, with named `RunInvalidReason`, static critique copy, evidence hash, and off-scope visibility fields. |
+| `GET /api/v1/verifier/runs/{run_id}` | **Public Verifier V0** — single JSON proof document containing run summary, lineage (instance / trust label / template), evidence (run log hash, verification-artifact metadata, RunEvent aggregate signals), and the verbatim embedded Wallet Safety Cat verdict. The Verifier composes the Cat module — it does not duplicate verdict logic. |
+
+Auth on both endpoints is keyed on `AgentInstance.trust_label`, never on `Agent.subject_type`:
+- `benchmarked_canonical_template` → public read, no auth.
+- `benchmark_compatible_customized_instance` → owner-auth required (401 anonymous, 403 wrong owner, 200 correct owner).
+- `external_custom_runtime` → defensive 422 (reserved label).
+
+Test coverage on `main`: 29 Cat tests + 19 Verifier tests + 8 A-6 failure-taxonomy regression tests, plus grep audits locking no-LLM imports, no-DB writes, no-Cat-logic-duplication, no-`subject_type`-as-auth-key, locked `{"error": ...}` error bodies, and 13-sentinel + 13-literal-key private-field non-leakage. See [scripts/v2_demo.md](scripts/v2_demo.md) for the runbook.
+
 ## V1 Benchmark: Swap Execution
 
 V1 ships one benchmark type: **fixed-basket swap execution**.
@@ -209,6 +225,7 @@ Current state:
 |-------|-----------|
 | **V1** | One benchmark type (swap execution), one provider type (local strategy submissions), deterministic on-chain settlement, AgentRank, leaderboard |
 | **V2** | Hosted, benchmark-linked agents using Agno templates, constrained developer customization, private managed instances, external adapters where demanded (webhook, OpenClaw, Claude Managed Agents), multiple challenge types, partner trust API, enhanced scoring and integrity |
+| **V2.1 Trust/Eval Core** (shipped) | **Wallet Safety Cat** (`GET /api/v1/cats/wallet_safety/{run_id}`) and **Public Verifier V0** (`GET /api/v1/verifier/runs/{run_id}`) — read-only, deterministic, no-LLM-in-trust-path proof/evidence endpoints over completed V2 hosted-instance runs. The Verifier composes the Cat. Near-term V2.1 follow-ons: Proof Card UI, TR1-narrow partner trust endpoint. |
 | **V3** | Web2 expansion — coding agent benchmarks, enterprise AI evaluation |
 
 V2 note:
