@@ -6,8 +6,6 @@ unknown template_key returns ok=False; defensive copy.
 """
 from __future__ import annotations
 
-import pytest
-
 from src.policy.engine import (
     InstancePolicyEngine,
     TEMPLATE_ENVELOPE_REGISTRY,

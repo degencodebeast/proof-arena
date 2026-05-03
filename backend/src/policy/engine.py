@@ -54,50 +54,11 @@ _REBALANCE_ENVELOPE_FIELDS: frozenset[str] = frozenset(
     }
 )
 
-# Module-level template registry — keyed by template_key.
+# Module-level so template_service can import without instantiating the engine.
 TEMPLATE_ENVELOPE_REGISTRY: dict[str, frozenset[str]] = {
-    "swap_executor_v1":      _ALLOWED_ENVELOPE_FIELDS,
+    "swap_executor_v1": _ALLOWED_ENVELOPE_FIELDS,
     "rebalance_executor_v1": _REBALANCE_ENVELOPE_FIELDS,
 }
-
-
-def validate_spec_for_template(template_key: str, spec: dict) -> "ValidationResult":
-    """Template-aware envelope validation per spec §5.2.
-
-    Step 1: unknown template_key → ok=False with locked message.
-    Step 2: membership check against TEMPLATE_ENVELOPE_REGISTRY[template_key].
-    Step 3: per-template range/shape checks (Task 1: swap delegates to validate_spec;
-            rebalance range/shape checks land in Task 3 — Task 1 stops after membership).
-
-    Defensive copy: this function does NOT mutate `spec`.
-    """
-    if not isinstance(template_key, str) or template_key not in TEMPLATE_ENVELOPE_REGISTRY:
-        return ValidationResult(errors=[
-            f"unknown template_key {template_key!r}: must be one of "
-            f"{sorted(TEMPLATE_ENVELOPE_REGISTRY.keys())}"
-        ])
-
-    allowed = TEMPLATE_ENVELOPE_REGISTRY[template_key]
-    errors: list[str] = []
-
-    spec_keys = set(spec.keys())
-    extra = spec_keys - allowed
-    missing = allowed - spec_keys
-    for k in sorted(extra):
-        errors.append(
-            f"unknown envelope field {k!r}; {template_key!r} customization is locked to "
-            f"{sorted(allowed)}"
-        )
-    for k in sorted(missing):
-        errors.append(f"missing required envelope field {k!r} for template {template_key!r}")
-
-    if not errors and template_key == "swap_executor_v1":
-        return InstancePolicyEngine().validate_spec(spec)
-
-    # Rebalance range/shape checks land in Task 3. For Task 1, membership-pass
-    # rebalance specs are accepted as ok=True at this layer.
-    return ValidationResult(errors=errors)
-
 
 # Range bounds. Narrow on purpose: these are liability controls, not tuning knobs.
 _MAX_SLIPPAGE_BPS_LIMIT = 500  # matches V1 `max_slippage_bps: Field(ge=0, le=500)` in db/schemas.py
@@ -137,6 +98,44 @@ class ConsentRecord:
 
 # Alias surfaced in the package `__all__` for downstream orchestration.
 DeploymentConsent = ConsentRecord
+
+
+def validate_spec_for_template(template_key: str, spec: dict[str, Any]) -> ValidationResult:
+    """Template-aware envelope validation per spec §5.2.
+
+    Step 1: unknown template_key → ok=False with locked message.
+    Step 2: membership check against TEMPLATE_ENVELOPE_REGISTRY[template_key].
+    Step 3: per-template range/shape checks (Task 1: swap delegates to validate_spec;
+            rebalance range/shape checks land in Task 3 — Task 1 stops after membership).
+
+    Does not mutate `spec`.
+    """
+    if template_key not in TEMPLATE_ENVELOPE_REGISTRY:
+        return ValidationResult(errors=[
+            f"unknown template_key {template_key!r}: must be one of "
+            f"{sorted(TEMPLATE_ENVELOPE_REGISTRY.keys())}"
+        ])
+
+    allowed = TEMPLATE_ENVELOPE_REGISTRY[template_key]
+    errors: list[str] = []
+
+    spec_keys = set(spec.keys())
+    extra = spec_keys - allowed
+    missing = allowed - spec_keys
+    for k in sorted(extra):
+        errors.append(
+            f"unknown envelope field {k!r}; V2 {template_key!r} customization is locked to "
+            f"{sorted(allowed)}"
+        )
+    for k in sorted(missing):
+        errors.append(f"missing required envelope field {k!r} for template {template_key!r}")
+
+    if not errors and template_key == "swap_executor_v1":
+        return InstancePolicyEngine().validate_spec(spec)
+
+    # Rebalance range/shape checks land in Task 3. For Task 1, membership-pass
+    # rebalance specs are accepted as ok=True at this layer.
+    return ValidationResult(errors=errors)
 
 
 class InstancePolicyEngine:

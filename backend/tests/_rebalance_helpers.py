@@ -18,7 +18,7 @@ from typing import Any
 # Baseline envelope factories
 # ---------------------------------------------------------------------------
 
-def make_rebalance_envelope(**overrides) -> dict:
+def make_rebalance_envelope(**overrides) -> dict[str, Any]:
     """Return the V0 baseline rebalance envelope merged with overrides."""
     base: dict[str, Any] = {
         "allowed_token_universe": [
@@ -41,7 +41,7 @@ def make_rebalance_envelope(**overrides) -> dict:
     return base
 
 
-def make_swap_envelope(**overrides) -> dict:
+def make_swap_envelope(**overrides) -> dict[str, Any]:
     """Return the V2 5-field swap envelope baseline.
 
     Values are chosen to pass validate_spec().
