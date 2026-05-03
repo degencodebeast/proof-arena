@@ -188,11 +188,17 @@ class TemplateService:
         is_deployable: bool = True,
         benchmark_subject_agent_id: Optional[int] = None,
     ) -> AgentTemplate:
-        """Register a new canonical template with strict V2 envelope validation.
+        """Register a new canonical template with strict template-aware envelope validation.
+
+        ``allowed_fields_json`` is checked against ``TEMPLATE_ENVELOPE_REGISTRY``
+        for the given ``template_key`` (swap → V2 5-field envelope; rebalance →
+        V0 7-field envelope). ``default_config_json`` is then validated by
+        ``policy.engine.validate_spec_for_template`` for the same key.
 
         Raises:
-            TemplateValidationError: envelope drift, malformed JSON, or
-                default_config that fails ``InstancePolicyEngine.validate_spec``.
+            TemplateValidationError: unknown ``template_key``, envelope drift,
+                malformed JSON, or default_config that fails
+                ``policy.engine.validate_spec_for_template`` for the resolved key.
             TemplateAlreadyExistsError: ``template_key`` collision.
             sqlalchemy.exc.IntegrityError: any other DB integrity failure
                 (e.g., bad ``benchmark_subject_agent_id`` FK). Propagated
