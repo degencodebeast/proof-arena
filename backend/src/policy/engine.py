@@ -100,7 +100,7 @@ class ConsentRecord:
 DeploymentConsent = ConsentRecord
 
 
-def _validate_rebalance_envelope_shape(spec: dict) -> list[str]:
+def _validate_rebalance_envelope_shape(spec: dict[str, Any]) -> list[str]:
     """V0 7-field rebalance envelope range/shape checks.
 
     Called by validate_spec_for_template AFTER the envelope-membership check
@@ -187,8 +187,8 @@ def validate_spec_for_template(template_key: str, spec: dict[str, Any]) -> Valid
 
     Step 1: unknown template_key → ok=False with locked message.
     Step 2: membership check against TEMPLATE_ENVELOPE_REGISTRY[template_key].
-    Step 3: per-template range/shape checks (Task 1: swap delegates to validate_spec;
-            rebalance range/shape checks land in Task 3 — Task 1 stops after membership).
+    Step 3: per-template range/shape checks — swap delegates to ``validate_spec``;
+            rebalance delegates to ``_validate_rebalance_envelope_shape``.
 
     Does not mutate `spec`.
     """

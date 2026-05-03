@@ -1,8 +1,6 @@
 """Spec §10 test 2 — rebalance envelope range/integrity checks (Task 3)."""
 from __future__ import annotations
 
-import pytest
-
 from src.policy.engine import validate_spec_for_template
 from tests._rebalance_helpers import make_rebalance_envelope
 
