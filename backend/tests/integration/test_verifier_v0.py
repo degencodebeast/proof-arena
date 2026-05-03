@@ -668,6 +668,36 @@ async def test_verifier_v0_response_does_not_expose_private_fields(
         f"builder so it does not surface this column."
     )
 
+    # Spec §10 lines 311-322 also require absence of literal private field-name
+    # substrings. The sentinel-value check above catches a leak when the value
+    # is non-null; these key-name checks catch the case where a future refactor
+    # surfaces e.g. `"last_failure_reason": null` (no sentinel value to grep,
+    # but the key itself leaks). Production code currently prevents this via
+    # explicit Pydantic allowlists; this assertion locks the contract.
+    forbidden_field_names = [
+        "runtime_handle_json",
+        "effective_config_json",
+        "benchmark_wallet",
+        "system_prompt",
+        "config_json",
+        "uri_or_ref",
+        # RunEvent payload field names — must never appear in resp.text:
+        "state_snapshot_json",
+        "action_payload_json",
+        "validation_payload_json",
+        "execution_payload_json",
+        "result_payload_json",
+        "quote_snapshot_ref",
+        "last_failure_reason",
+    ]
+    name_leaks = [s for s in forbidden_field_names if s in text]
+    assert name_leaks == [], (
+        f"Private field NAMES leaked into the Verifier response: {name_leaks}. "
+        f"Even if the value is null/empty, the key string must not appear in "
+        f"resp.text. Remove the field from the Verifier* Pydantic models in "
+        f"schemas.py or stop the builder from constructing it."
+    )
+
 
 @pytest.mark.asyncio
 async def test_verifier_v0_does_not_consult_agent_subject_type_for_auth(
