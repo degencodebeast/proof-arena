@@ -714,3 +714,115 @@ async def test_verifier_v0_canonical_template_run_with_customized_instance_subje
     assert resp.status_code != 401
     assert resp.status_code != 403
     assert resp.status_code == 200
+
+
+import importlib
+import inspect
+import re
+from pathlib import Path
+
+from sqlalchemy import func, select as _select
+
+# RankSnapshot is required by spec §10's no-DB-writes count delta. The
+# import lives in this Task 14 block (not the file's top-level import list)
+# because earlier tasks didn't need it; keeping each task's added imports
+# co-located with its code makes the per-task review surface smaller.
+from src.db.models import RankSnapshot
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_no_db_writes_in_verifier_path(
+    db, http_client,
+):
+    """The Verifier path is read-only. Row counts for every mutable table
+    on the trust path must be unchanged across a successful 200 response.
+
+    Per spec §10 the count set explicitly includes `rank_snapshots` — this
+    is the lineage-not-score lock at the test layer (the Verifier must
+    never mutate any leaderboard read model)."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+
+    async def _row_counts():
+        return {
+            "Run": (await db.execute(_select(func.count()).select_from(Run))).scalar_one(),
+            "Agent": (await db.execute(_select(func.count()).select_from(Agent))).scalar_one(),
+            "AgentInstance": (await db.execute(_select(func.count()).select_from(AgentInstance))).scalar_one(),
+            "AgentTemplate": (await db.execute(_select(func.count()).select_from(AgentTemplate))).scalar_one(),
+            "RunEvent": (await db.execute(_select(func.count()).select_from(RunEvent))).scalar_one(),
+            "VerificationArtifact": (await db.execute(_select(func.count()).select_from(VerificationArtifact))).scalar_one(),
+            "RankSnapshot": (await db.execute(_select(func.count()).select_from(RankSnapshot))).scalar_one(),
+        }
+
+    before = await _row_counts()
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200
+    after = await _row_counts()
+    assert before == after, f"Verifier path mutated DB: before={before} after={after}"
+
+
+def test_verifier_v0_no_llm_imports_in_trust_path():
+    """Static guard: no LLM/network SDK imports anywhere in the Verifier modules.
+    Same discipline as the Cat module."""
+    forbidden_substrings = (
+        "import anthropic",
+        "import openai",
+        "from anthropic",
+        "from openai",
+        "import agno",
+        "from agno",
+        "import litellm",
+        "from litellm",
+    )
+    repo_root = Path(__file__).resolve().parents[2]
+    files = [
+        repo_root / "src" / "integrity" / "verifier" / "__init__.py",
+        repo_root / "src" / "integrity" / "verifier" / "schemas.py",
+        repo_root / "src" / "integrity" / "verifier" / "builder.py",
+        repo_root / "src" / "api" / "verifier.py",
+    ]
+    leaks: list[tuple[str, str]] = []
+    for path in files:
+        text = path.read_text()
+        for needle in forbidden_substrings:
+            if needle in text:
+                leaks.append((str(path), needle))
+    assert leaks == [], f"LLM/network SDK imports found in trust path: {leaks}"
+
+
+def test_verifier_v0_no_new_runinvalidreason_members():
+    """The Verifier must not introduce new RunInvalidReason members.
+    Reads the enum once at runtime; if a member is added by Verifier work,
+    this test fires loudly."""
+    from src.integrity.failure_taxonomy import RunInvalidReason
+
+    expected_members = frozenset({
+        # V1 baseline:
+        "incomplete_required_actions",
+        "invalid_action_attempts_exceeded",
+        "stale_quote_execution_failed",
+        "timeout_before_completion",
+        "flattening_failed",
+        "execution_error",
+        # V2 hosted-path:
+        "mainnet_guard_triggered",
+        "wallet_policy_rejected",
+        "runtime_invocation_failed",
+        "authorization_signature_rejected",
+        "hosted_wallet_unavailable",
+    })
+    actual = frozenset(m.value for m in RunInvalidReason)
+    extra = actual - expected_members
+    missing = expected_members - actual
+    assert extra == set() and missing == set(), (
+        f"RunInvalidReason drift: extra={extra}, missing={missing}. "
+        f"Expected baseline lives in this test plus failure_taxonomy.py."
+    )
