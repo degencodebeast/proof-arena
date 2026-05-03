@@ -434,3 +434,64 @@ async def test_verifier_v0_evidence_block_includes_run_log_hash_and_artifact_met
         # Defense-in-depth: the private uri_or_ref string never appears.
         assert "MUST-NOT-LEAK" not in resp.text
         assert "uri_or_ref" not in entry
+
+
+from src.db.models import RunEvent
+
+
+async def _seed_run_event(
+    db: AsyncSession,
+    *,
+    run_id: int,
+    sequence_no: int,
+    event_type: str,
+    state_snapshot_json: str | None = None,
+) -> RunEvent:
+    event = RunEvent(
+        run_id=run_id,
+        sequence_no=sequence_no,
+        event_type=event_type,
+        timestamp=datetime.now(timezone.utc),
+        state_snapshot_json=state_snapshot_json,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    return event
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_evidence_event_signals_are_aggregate_only(
+    db, http_client,
+):
+    """evidence exposes run_event_count, last_event_sequence_no, last_event_type
+    (mirrored as-is from RunEvent.event_type). Raw event payloads must NEVER
+    appear in resp.text."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    private_payload = "PRIVATE-STATE-MUST-NOT-LEAK"
+    await _seed_run_event(
+        db, run_id=run.run_id, sequence_no=1, event_type="observe",
+        state_snapshot_json=f'{{"secret": "{private_payload}"}}',
+    )
+    await _seed_run_event(
+        db, run_id=run.run_id, sequence_no=2, event_type="finalize",
+    )
+
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["evidence"]["run_event_count"] == 2
+    assert body["evidence"]["last_event_sequence_no"] == 2
+    assert body["evidence"]["last_event_type"] == "finalize"
+
+    # Raw payload must not leak.
+    assert private_payload not in resp.text
