@@ -302,3 +302,32 @@ async def test_verifier_v0_benchmarked_canonical_template_run_is_publicly_readab
 
     expected_cat = await compute_wallet_safety_cat(db, run.run_id)
     assert body["cats"]["wallet_safety"] == expected_cat.model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_embeds_wallet_safety_cat_verbatim_via_compute(
+    db, http_client,
+):
+    """cats.wallet_safety must be the byte-equivalent of compute_wallet_safety_cat.
+
+    Locks the no-duplication discipline — the Verifier composes; never recomputes.
+    Exercised here on a fail-verdict run so the embedded Cat carries non-trivial
+    fields (reason, critique, failing checks).
+    """
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(
+        db, agent_id=agent.agent_id,
+        invalid_reason="wallet_policy_rejected",
+    )
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200
+    expected_cat = await compute_wallet_safety_cat(db, run.run_id)
+    assert resp.json()["cats"]["wallet_safety"] == expected_cat.model_dump(mode="json")
