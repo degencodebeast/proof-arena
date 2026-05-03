@@ -331,3 +331,34 @@ async def test_verifier_v0_embeds_wallet_safety_cat_verbatim_via_compute(
     assert resp.status_code == 200
     expected_cat = await compute_wallet_safety_cat(db, run.run_id)
     assert resp.json()["cats"]["wallet_safety"] == expected_cat.model_dump(mode="json")
+
+
+from src.db.models import AgentTemplate as _AgentTemplate  # local alias for clarity
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_lineage_template_block_matches_agent_template_row(
+    db, http_client,
+):
+    """lineage.template fields must equal the AgentTemplate row 1-to-1
+    (template_version_at_deploy comes from AgentInstance, not AgentTemplate)."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200
+    template_block = resp.json()["lineage"]["template"]
+
+    template_row = await db.get(_AgentTemplate, template_id)
+    assert template_block["template_key"] == template_row.template_key
+    assert template_block["template_version"] == template_row.template_version
+    assert template_block["template_version_at_deploy"] == instance.template_version_at_deploy
+    assert template_block["description"] == template_row.description
+    assert template_block["is_deployable"] == bool(template_row.is_deployable)
