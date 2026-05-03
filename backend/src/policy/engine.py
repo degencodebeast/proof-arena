@@ -100,6 +100,88 @@ class ConsentRecord:
 DeploymentConsent = ConsentRecord
 
 
+def _validate_rebalance_envelope_shape(spec: dict) -> list[str]:
+    """V0 7-field rebalance envelope range/shape checks.
+
+    Called by validate_spec_for_template AFTER the envelope-membership check
+    passes for template_key='rebalance_executor_v1'. Returns a list of error
+    strings (empty list = ok). Caller wraps the list in a ValidationResult.
+    """
+    errors: list[str] = []
+
+    universe = spec.get("allowed_token_universe", [])
+    if not isinstance(universe, list) or not universe:
+        errors.append(
+            "allowed_token_universe must be a non-empty list of mint strings"
+        )
+    else:
+        for i, mint in enumerate(universe):
+            if not isinstance(mint, str) or not mint:
+                errors.append(
+                    f"allowed_token_universe[{i}] must be a non-empty string; got {mint!r}"
+                )
+
+    target = spec.get("target_allocations", {})
+    if not isinstance(target, dict) or not target:
+        errors.append(
+            "target_allocations must be a non-empty dict of mint→weight"
+        )
+    else:
+        total = 0.0
+        valid_universe = universe if isinstance(universe, list) else []
+        for mint, w in target.items():
+            if mint not in valid_universe:
+                errors.append(
+                    f"target_allocations key {mint!r} not in allowed_token_universe"
+                )
+            if isinstance(w, bool) or not isinstance(w, (int, float)):
+                errors.append(
+                    f"target_allocations[{mint!r}] must be a number; got {type(w).__name__}={w!r}"
+                )
+                continue
+            if w < 0.0 or w > 1.0:
+                errors.append(
+                    f"target_allocations[{mint!r}]={w} must be in [0.0, 1.0]"
+                )
+            total += float(w)
+        if abs(total - 1.0) > 0.01:
+            errors.append(
+                f"target_allocations sum {total} must be 1.0 ± 0.01"
+            )
+
+    th = spec.get("rebalance_threshold_bps")
+    if isinstance(th, bool) or not isinstance(th, int) or th < 1 or th > 5000:
+        errors.append(
+            f"rebalance_threshold_bps must be int in [1, 5000]; got {th!r}"
+        )
+
+    sl = spec.get("max_slippage_bps")
+    if isinstance(sl, bool) or not isinstance(sl, int) or sl < 0 or sl > _MAX_SLIPPAGE_BPS_LIMIT:
+        errors.append(
+            f"max_slippage_bps must be int in [0, {_MAX_SLIPPAGE_BPS_LIMIT}]; got {sl!r}"
+        )
+
+    pw = spec.get("max_position_weight")
+    if isinstance(pw, bool) or not isinstance(pw, (int, float)) or pw <= 0.0 or pw > 1.0:
+        errors.append(
+            f"max_position_weight must be in (0.0, 1.0]; got {pw!r}"
+        )
+
+    tv = spec.get("max_trade_value")
+    if isinstance(tv, bool) or not isinstance(tv, int) or tv < 1 or tv > _MAX_POSITION_SIZE_LIMIT:
+        errors.append(
+            f"max_trade_value must be int in [1, {_MAX_POSITION_SIZE_LIMIT}]; got {tv!r}"
+        )
+
+    dr = spec.get("dry_run")
+    if not isinstance(dr, bool):
+        errors.append(
+            f"dry_run must be bool; got {type(dr).__name__}={dr!r}"
+        )
+
+    return errors
+
+
 def validate_spec_for_template(template_key: str, spec: dict[str, Any]) -> ValidationResult:
     """Template-aware envelope validation per spec §5.2.
 
@@ -130,11 +212,16 @@ def validate_spec_for_template(template_key: str, spec: dict[str, Any]) -> Valid
     for k in sorted(missing):
         errors.append(f"missing required envelope field {k!r} for template {template_key!r}")
 
-    if not errors and template_key == "swap_executor_v1":
+    if errors:
+        return ValidationResult(errors=errors)
+
+    if template_key == "swap_executor_v1":
         return InstancePolicyEngine().validate_spec(spec)
 
-    # Rebalance range/shape checks land in Task 3. For Task 1, membership-pass
-    # rebalance specs are accepted as ok=True at this layer.
+    if template_key == "rebalance_executor_v1":
+        shape_errors = _validate_rebalance_envelope_shape(spec)
+        return ValidationResult(errors=shape_errors)
+
     return ValidationResult(errors=errors)
 
 
