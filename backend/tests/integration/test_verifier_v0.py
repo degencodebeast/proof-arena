@@ -495,3 +495,61 @@ async def test_verifier_v0_evidence_event_signals_are_aggregate_only(
 
     # Raw payload must not leak.
     assert private_payload not in resp.text
+
+
+class _FakeUser:
+    def __init__(self, privy_user_id: str):
+        self.privy_user_id = privy_user_id
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_benchmark_compatible_customized_instance_run_requires_owner_auth(
+    db, http_client, monkeypatch,
+):
+    """3 sub-cases:
+    1. No Authorization header → 401 (real get_current_user(None) raises;
+       NOT monkey-patched, so end-to-end auth-layer behavior is exercised).
+    2. Bearer present, wrong owner → 403 {"error": "not_instance_owner"}
+       (monkeypatch.setattr on src.api.verifier.get_current_user).
+    3. Bearer present, correct owner → 200 (monkeypatch.setattr replaced).
+    """
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmark_compatible_customized_instance",
+        instance_owner_ref="owner-real",
+    )
+    agent = await _seed_bridge_agent(db, instance_id=instance.instance_id)
+    run = await _seed_run(db, agent_id=agent.agent_id)
+
+    # ---- Case 1: no bearer → 401 from the real get_current_user(None). ----
+    # NOT monkey-patched: this asserts the real auth-layer 401 propagates
+    # via the route's `except HTTPException: raise` clause unmodified.
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 401, resp.text
+
+    # ---- Case 2: bearer present, wrong owner → 403 ----
+    async def _wrong_owner(_creds):
+        return _FakeUser(privy_user_id="owner-wrong")
+
+    monkeypatch.setattr("src.api.verifier.get_current_user", _wrong_owner)
+    resp = await http_client.get(
+        f"/api/v1/verifier/runs/{run.run_id}",
+        headers={"Authorization": "Bearer fake-token"},
+    )
+    assert resp.status_code == 403
+    assert resp.json() == {"error": "not_instance_owner"}
+
+    # ---- Case 3: bearer present, correct owner → 200 ----
+    # monkeypatch.setattr called again with the same target replaces the
+    # previous patch; pytest still auto-reverts both at function teardown.
+    async def _correct_owner(_creds):
+        return _FakeUser(privy_user_id="owner-real")
+
+    monkeypatch.setattr("src.api.verifier.get_current_user", _correct_owner)
+    resp = await http_client.get(
+        f"/api/v1/verifier/runs/{run.run_id}",
+        headers={"Authorization": "Bearer fake-token"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["lineage"]["trust_label"] == "benchmark_compatible_customized_instance"
