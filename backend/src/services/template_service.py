@@ -118,7 +118,7 @@ REBALANCE_EXECUTOR_V1_SEED: dict[str, Any] = {
             "max_slippage_bps": 100,
             "max_position_weight": 1.0,
             "max_trade_value": 1_000_000,
-            "dry_run": False,
+            "dry_run": True,
         }
     ),
     "system_prompt": (
@@ -154,6 +154,11 @@ def _validate_allowed_fields_for_template(
         raise TemplateValidationError(
             f"allowed_fields_json must decode to a JSON array; "
             f"got {type(decoded).__name__}"
+        )
+    if not all(isinstance(elem, str) for elem in decoded):
+        raise TemplateValidationError(
+            f"allowed_fields_json must be a JSON array of strings; "
+            f"got non-string element in {decoded!r}"
         )
     provided = set(decoded)
     expected = set(TEMPLATE_ENVELOPE_REGISTRY[template_key])

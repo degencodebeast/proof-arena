@@ -238,3 +238,63 @@ def test_legacy_validate_allowed_fields_shim_swap_compat():
     ])
     with pytest.raises(TemplateValidationError):
         TemplateService._validate_allowed_fields(json.dumps(rebal_fields))
+
+
+def test_rebalance_seed_dry_run_default_is_true():
+    """Spec §5.1 — V0 default for dry_run is True. Cat happy-path predicate
+    (spec §5.6 dry_run_or_devnet_check) requires this; a False default would
+    silently fail every fresh rebalance instance once Task 19+ ships."""
+    import json
+    from src.services.template_service import REBALANCE_EXECUTOR_V1_SEED
+    default_config = json.loads(REBALANCE_EXECUTOR_V1_SEED["default_config_json"])
+    assert default_config["dry_run"] is True, (
+        f"REBALANCE_EXECUTOR_V1_SEED dry_run must default to True per spec §5.1; "
+        f"got {default_config['dry_run']!r}"
+    )
+
+
+def test_allowed_fields_json_with_dict_element_raises_template_validation_error():
+    """Finding 2: a JSON array containing a dict element must produce
+    TemplateValidationError, not raw TypeError from set() construction."""
+    import json
+    import pytest
+    from src.services.template_service import (
+        TemplateValidationError,
+        _validate_allowed_fields_for_template,
+    )
+    with pytest.raises(TemplateValidationError) as exc_info:
+        _validate_allowed_fields_for_template(
+            "swap_executor_v1", json.dumps([{"x": 1}])
+        )
+    assert "allowed_fields_json must be a JSON array of strings" in str(exc_info.value)
+
+
+def test_allowed_fields_json_with_int_elements_raises_template_validation_error():
+    """Finding 2: hashable non-string elements (ints) must also be rejected
+    with the locked error wording — not silently accepted."""
+    import json
+    import pytest
+    from src.services.template_service import (
+        TemplateValidationError,
+        _validate_allowed_fields_for_template,
+    )
+    with pytest.raises(TemplateValidationError) as exc_info:
+        _validate_allowed_fields_for_template(
+            "swap_executor_v1", json.dumps([1, 2, 3])
+        )
+    assert "allowed_fields_json must be a JSON array of strings" in str(exc_info.value)
+
+
+def test_allowed_fields_json_with_mixed_string_and_non_string_rejected():
+    """Finding 2 boundary: even ONE non-string element in an otherwise-strings
+    array fails the gate."""
+    import json
+    import pytest
+    from src.services.template_service import (
+        TemplateValidationError,
+        _validate_allowed_fields_for_template,
+    )
+    bad = ["allowed_token_universe", 42, "max_slippage_bps"]
+    with pytest.raises(TemplateValidationError) as exc_info:
+        _validate_allowed_fields_for_template("swap_executor_v1", json.dumps(bad))
+    assert "allowed_fields_json must be a JSON array of strings" in str(exc_info.value)
