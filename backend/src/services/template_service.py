@@ -33,7 +33,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Agent, AgentInstance, AgentTemplate
 from src.integrity.trust_labels import TrustLabel
-from src.policy.engine import InstancePolicyEngine, _ALLOWED_ENVELOPE_FIELDS
+from src.policy.engine import (
+    InstancePolicyEngine,
+    _ALLOWED_ENVELOPE_FIELDS,
+    TEMPLATE_ENVELOPE_REGISTRY,
+)
 
 
 class TemplateServiceError(Exception):
@@ -88,6 +92,78 @@ SWAP_EXECUTOR_V1_SEED: dict[str, Any] = {
     "is_deployable": True,
 }
 
+# Rebalance fields: frozenset from TEMPLATE_ENVELOPE_REGISTRY for convenience.
+_REBALANCE_ENVELOPE_FIELDS = TEMPLATE_ENVELOPE_REGISTRY["rebalance_executor_v1"]
+
+# Canonical seed for the ``rebalance_executor_v1`` template (V0 Cat).
+REBALANCE_EXECUTOR_V1_SEED: dict[str, Any] = {
+    "template_key": "rebalance_executor_v1",
+    "template_version": "rebalance_executor_v1",
+    "description": (
+        "Rebalance a Solana token portfolio on devnet toward target allocations."
+    ),
+    "allowed_fields_json": json.dumps(sorted(_REBALANCE_ENVELOPE_FIELDS)),
+    "default_config_json": json.dumps(
+        {
+            "allowed_token_universe": [
+                "So11111111111111111111111111111111111111112",
+                "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k",
+            ],
+            "target_allocations": {
+                "So11111111111111111111111111111111111111112": 0.5,
+                "BRjpCHtyQLNCo8gqRUr8jtdAj5AjPYQaoqbvcZiHok1k": 0.5,
+            },
+            "rebalance_threshold_bps": 100,
+            "max_slippage_bps": 100,
+            "max_position_weight": 1.0,
+            "max_trade_value": 1_000_000,
+            "dry_run": False,
+        }
+    ),
+    "system_prompt": (
+        "Rebalance the portfolio toward the target allocations using minimal "
+        "trades and conservative slippage controls."
+    ),
+    "is_deployable": True,
+}
+
+
+def _validate_allowed_fields_for_template(
+    template_key: str,
+    allowed_fields_json: str,
+) -> None:
+    """Template-aware allowed-fields validator (per spec §5.2 + plan Task 2).
+
+    Mirrors deploy-time validation (``policy.engine.validate_spec_for_template``)
+    at template-registration time so a malformed seed cannot enter the DB.
+    """
+    if not isinstance(template_key, str) or template_key not in TEMPLATE_ENVELOPE_REGISTRY:
+        raise TemplateValidationError(
+            f"unknown template_key {template_key!r} at registration; "
+            f"must be one of {sorted(TEMPLATE_ENVELOPE_REGISTRY.keys())}"
+        )
+    try:
+        decoded = json.loads(allowed_fields_json)
+    except (json.JSONDecodeError, TypeError) as exc:
+        raise TemplateValidationError(
+            f"allowed_fields_json must be a JSON array of strings; "
+            f"got error: {exc}"
+        ) from exc
+    if not isinstance(decoded, list):
+        raise TemplateValidationError(
+            f"allowed_fields_json must decode to a JSON array; "
+            f"got {type(decoded).__name__}"
+        )
+    provided = set(decoded)
+    expected = set(TEMPLATE_ENVELOPE_REGISTRY[template_key])
+    missing = expected - provided
+    extra = provided - expected
+    if missing or extra:
+        raise TemplateValidationError(
+            f"allowed_fields_json mismatch for template_key={template_key!r}; "
+            f"missing={sorted(missing)}, extra={sorted(extra)}"
+        )
+
 
 class TemplateService:
     """Manages the V2 canonical template catalog."""
@@ -122,7 +198,12 @@ class TemplateService:
                 as-is so callers can classify accurately; only duplicate
                 ``template_key`` is rewritten to a domain error.
         """
-        self._validate_allowed_fields(allowed_fields_json)
+        if template_key in TEMPLATE_ENVELOPE_REGISTRY:
+            self._validate_allowed_fields_for_template(template_key, allowed_fields_json)
+        else:
+            # Legacy fallback for template_key values not yet in the registry:
+            # validate against the swap envelope for backward compatibility.
+            self._validate_allowed_fields(allowed_fields_json)
         self._validate_default_config(default_config_json)
 
         # Explicit pre-check so we classify duplicate-key errors without
@@ -169,27 +250,22 @@ class TemplateService:
         return template
 
     @staticmethod
+    def _validate_allowed_fields_for_template(
+        template_key: str,
+        allowed_fields_json: str,
+    ) -> None:
+        """Template-aware allowed-fields validator.  Delegates to the module-level function."""
+        _validate_allowed_fields_for_template(template_key, allowed_fields_json)
+
+    @staticmethod
     def _validate_allowed_fields(allowed_fields_json: str) -> None:
-        """Parse ``allowed_fields_json`` and enforce set-equality with the V2 envelope."""
-        try:
-            decoded = json.loads(allowed_fields_json)
-        except json.JSONDecodeError as exc:
-            raise TemplateValidationError(
-                f"allowed_fields_json is not valid JSON: {exc.msg}"
-            ) from exc
-        if not isinstance(decoded, list):
-            raise TemplateValidationError(
-                "allowed_fields_json must decode to a JSON list"
-            )
-        provided = set(decoded)
-        expected = set(_ALLOWED_ENVELOPE_FIELDS)
-        missing = expected - provided
-        extra = provided - expected
-        if missing or extra:
-            raise TemplateValidationError(
-                "allowed_fields must equal the V2 envelope exactly: "
-                f"missing={sorted(missing)}, extra={sorted(extra)}"
-            )
+        """Legacy back-compat shim — delegates to the swap envelope.
+
+        Kept so any caller that has not migrated to
+        ``_validate_allowed_fields_for_template`` still works for swap
+        registrations.  All NEW callers MUST pass ``template_key`` explicitly.
+        """
+        _validate_allowed_fields_for_template("swap_executor_v1", allowed_fields_json)
 
     def _validate_default_config(self, default_config_json: str) -> None:
         """Parse ``default_config_json`` and enforce policy-engine validation.

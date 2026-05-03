@@ -147,3 +147,94 @@ def test_hashable_non_string_template_key_returns_ok_false():
         assert any("unknown template_key" in e for e in result.errors), (
             f"Expected 'unknown template_key' in errors for {bad_key!r}; got {result.errors}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 2 — template-aware _validate_allowed_fields_for_template in template_service
+# ---------------------------------------------------------------------------
+
+import json
+import pytest
+
+from src.services.template_service import (
+    TemplateValidationError,
+    _validate_allowed_fields_for_template,
+)
+
+
+def test_swap_allowed_fields_json_passes_under_swap_template_key():
+    """Plan Task 2 — swap envelope fields, JSON-encoded, register cleanly."""
+    swap_fields = sorted([
+        "allowed_token_universe", "max_slippage_bps",
+        "max_position_size", "max_iterations", "max_runtime_seconds",
+    ])
+    # Must not raise.
+    _validate_allowed_fields_for_template(
+        "swap_executor_v1", json.dumps(swap_fields)
+    )
+
+
+def test_rebalance_allowed_fields_json_passes_under_rebalance_template_key():
+    """Plan Task 2 — rebalance envelope fields, JSON-encoded, register cleanly."""
+    rebal_fields = sorted([
+        "allowed_token_universe", "target_allocations", "rebalance_threshold_bps",
+        "max_slippage_bps", "max_position_weight", "max_trade_value", "dry_run",
+    ])
+    _validate_allowed_fields_for_template(
+        "rebalance_executor_v1", json.dumps(rebal_fields)
+    )
+
+
+def test_swap_allowed_fields_json_fails_under_rebalance_template_key():
+    """Plan Task 2 — disjoint envelope contract: swap-only fields must NOT
+    register under rebalance template."""
+    swap_fields = sorted([
+        "allowed_token_universe", "max_slippage_bps",
+        "max_position_size", "max_iterations", "max_runtime_seconds",
+    ])
+    with pytest.raises(TemplateValidationError):
+        _validate_allowed_fields_for_template(
+            "rebalance_executor_v1", json.dumps(swap_fields)
+        )
+
+
+def test_unknown_template_key_at_registration_rejected():
+    """Plan Task 2 — unknown template_key fails at registration time, mirroring
+    the deploy-time gate in validate_spec_for_template."""
+    with pytest.raises(TemplateValidationError):
+        _validate_allowed_fields_for_template("nonexistent_template_v1", json.dumps([]))
+
+
+def test_malformed_allowed_fields_json_rejected():
+    """Edge-case gate — malformed JSON in allowed_fields_json must produce a
+    clear TemplateValidationError, not a raw json.JSONDecodeError leak."""
+    with pytest.raises(TemplateValidationError):
+        _validate_allowed_fields_for_template("swap_executor_v1", "{not valid json")
+
+
+def test_legacy_validate_allowed_fields_shim_swap_compat():
+    """Edge-case gate — the legacy private `_validate_allowed_fields` shim
+    must remain importable and delegate to the swap envelope, so any
+    pre-existing caller that hasn't migrated to the template-aware variant
+    keeps working."""
+    from src.services.template_service import TemplateService
+    # Public-private boundary: TemplateService._validate_allowed_fields exists
+    # as a static method per the plan's back-compat clause.
+    assert hasattr(TemplateService, "_validate_allowed_fields"), (
+        "Plan §Task 2 Step 3 requires the legacy shim `_validate_allowed_fields` "
+        "to remain on TemplateService for back-compat."
+    )
+    swap_fields = sorted([
+        "allowed_token_universe", "max_slippage_bps",
+        "max_position_size", "max_iterations", "max_runtime_seconds",
+    ])
+    # Legacy form: no template_key argument.
+    TemplateService._validate_allowed_fields(json.dumps(swap_fields))
+    # Swap registration via the legacy path must still validate; rebalance
+    # fields must still fail (since the shim delegates to the swap envelope).
+    rebal_fields = sorted([
+        "allowed_token_universe", "target_allocations", "rebalance_threshold_bps",
+        "max_slippage_bps", "max_position_weight", "max_trade_value", "dry_run",
+    ])
+    with pytest.raises(TemplateValidationError):
+        TemplateService._validate_allowed_fields(json.dumps(rebal_fields))
