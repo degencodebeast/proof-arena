@@ -716,9 +716,6 @@ async def test_verifier_v0_canonical_template_run_with_customized_instance_subje
     assert resp.status_code == 200
 
 
-import importlib
-import inspect
-import re
 from pathlib import Path
 
 from sqlalchemy import func, select as _select
