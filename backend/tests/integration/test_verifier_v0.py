@@ -160,3 +160,79 @@ async def test_verifier_v0_returns_404_for_unknown_run_id_via_http(http_client):
     resp = await http_client.get("/api/v1/verifier/runs/999999")
     assert resp.status_code == 404
     assert resp.json() == {"error": "run_not_found"}
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_returns_404_instance_unresolvable_via_http(
+    db, http_client,
+):
+    """Bridge failure (Agent has no metadata_ref / privy_user_id) → 404 instance_unresolvable."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(db, template_id=template_id)
+    agent = await _seed_bridge_agent(
+        db,
+        instance_id=instance.instance_id,
+        use_metadata_ref=False,
+        privy_user_id_override="bogus-not-a-bridge",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 404
+    assert resp.json() == {"error": "instance_unresolvable"}
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_returns_422_for_completion_status_null_via_http(
+    db, http_client,
+):
+    """Run still in progress (completion_status IS NULL) → 422 run_not_final."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(db, template_id=template_id)
+    agent = await _seed_bridge_agent(db, instance_id=instance.instance_id)
+    run = await _seed_run(
+        db, agent_id=agent.agent_id, completion_status=None,
+    )
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"] == "run_not_final"
+    assert "lifecycle_status" in body
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_v1_local_provider_runs_out_of_scope_via_http(
+    db, http_client,
+):
+    """V1 local-provider runs are out of V0 scope → 422 unsupported_provider_type."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(db, template_id=template_id)
+    agent = await _seed_bridge_agent(db, instance_id=instance.instance_id)
+    run = await _seed_run(
+        db, agent_id=agent.agent_id, provider_type="local",
+    )
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "error": "unsupported_provider_type",
+        "provider_type": "local",
+    }
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_external_custom_runtime_returns_422_defensively_via_http(
+    db, http_client,
+):
+    """external_custom_runtime is reserved-only in V2; defensive 422."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="external_custom_runtime",
+    )
+    agent = await _seed_bridge_agent(db, instance_id=instance.instance_id)
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "error": "unsupported_trust_label",
+        "trust_label": "external_custom_runtime",
+    }
