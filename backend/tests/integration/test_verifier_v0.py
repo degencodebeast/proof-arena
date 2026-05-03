@@ -586,3 +586,84 @@ async def test_verifier_v0_returns_500_internal_error_on_unexpected_exception(
     assert resp.status_code == 500
     assert resp.json() == {"error": "internal_error"}
     assert secret not in resp.text
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_response_does_not_expose_private_fields(
+    db, http_client,
+):
+    """Sentinel-value grep audit. Every private field gets a unique sentinel
+    string before seeding; resp.text must not contain any of them.
+
+    Forbidden field set per spec §3.5 / §13:
+      Run:           benchmark_wallet_address, benchmark_wallet_ref, score_inputs_json
+      AgentInstance: instance_owner_ref (read for auth, never surfaced),
+                     effective_config_json, runtime_handle_json,
+                     wallet_address, hosted_wallet_ref, wallet_provider
+      Agent:         system_prompt, config_json, owner_wallet, submission_hash
+      VerificationArtifact: uri_or_ref (already covered in Task 8 — re-asserted here)
+
+    Note: last_failure_reason is excluded from sentinel seeding because
+    AgentInstance.last_failure_reason has a DB CHECK constraint limiting
+    it to a fixed enum (provisioning_failed, wallet_created_runtime_failed,
+    runtime_live_consent_failed). A free-text sentinel would raise an
+    IntegrityError. The field is still blocked by the schema allowlist.
+    """
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+        instance_owner_ref="SENTINEL-INSTANCE-OWNER-REF",
+    )
+    # Mutate private fields directly to ensure unique sentinel values.
+    instance.effective_config_json = "SENTINEL-EFFECTIVE-CONFIG"
+    instance.runtime_handle_json = "SENTINEL-RUNTIME-HANDLE"
+    instance.wallet_address = "SENTINEL-WALLET-ADDR-INSTANCE"
+    instance.hosted_wallet_ref = "SENTINEL-HOSTED-WALLET-REF"
+    instance.wallet_provider = "SENTINEL-WALLET-PROVIDER"
+    db.add(instance)
+    await db.commit()
+
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",
+    )
+    agent.system_prompt = "SENTINEL-SYSTEM-PROMPT"
+    agent.config_json = "SENTINEL-AGENT-CONFIG"
+    agent.owner_wallet = "SENTINEL-OWNER-WALLET"
+    agent.submission_hash = "SENTINEL-SUBMISSION-HASH"
+    db.add(agent)
+    await db.commit()
+
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    run.benchmark_wallet_address = "SENTINEL-BENCHMARK-WALLET-ADDR"
+    run.benchmark_wallet_ref = "SENTINEL-BENCHMARK-WALLET-REF"
+    run.score_inputs_json = "SENTINEL-SCORE-INPUTS"
+    db.add(run)
+    await db.commit()
+
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 200, resp.text
+    text = resp.text
+
+    forbidden_sentinels = [
+        "SENTINEL-INSTANCE-OWNER-REF",
+        "SENTINEL-EFFECTIVE-CONFIG",
+        "SENTINEL-RUNTIME-HANDLE",
+        "SENTINEL-WALLET-ADDR-INSTANCE",
+        "SENTINEL-HOSTED-WALLET-REF",
+        "SENTINEL-WALLET-PROVIDER",
+        "SENTINEL-SYSTEM-PROMPT",
+        "SENTINEL-AGENT-CONFIG",
+        "SENTINEL-OWNER-WALLET",
+        "SENTINEL-SUBMISSION-HASH",
+        "SENTINEL-BENCHMARK-WALLET-ADDR",
+        "SENTINEL-BENCHMARK-WALLET-REF",
+        "SENTINEL-SCORE-INPUTS",
+    ]
+    leaks = [s for s in forbidden_sentinels if s in text]
+    assert leaks == [], (
+        f"Private fields leaked into the Verifier response: {leaks}. "
+        f"Add the field to the explicit allowlist exclusion or fix the "
+        f"builder so it does not surface this column."
+    )
