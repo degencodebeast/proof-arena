@@ -66,4 +66,26 @@ async def get_verifier_run(
     creds: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
     db: AsyncSession = Depends(get_db),
 ):
-    raise NotImplementedError("Filled in by Task 2.")
+    try:
+        try:
+            run, agent, instance = await resolve_run_and_instance(db, run_id)
+        except (
+            RunNotFoundError, InstanceUnresolvableError, RunNotFinalError,
+            UnsupportedProviderTypeError, UnsupportedTrustLabelError,
+        ) as e:
+            return _map_domain_error(e)
+
+        if instance.trust_label == "benchmark_compatible_customized_instance":
+            user = await get_current_user(creds)
+            if user.privy_user_id != instance.instance_owner_ref:
+                return JSONResponse(
+                    status_code=403, content={"error": "not_instance_owner"},
+                )
+
+        return await build_verifier_run_response(db, run_id)
+    except HTTPException:
+        # Auth-layer 401 from get_current_user must propagate unmodified.
+        raise
+    except Exception:
+        # Spec §8: locked 5xx body. Internal exception text never leaks.
+        return JSONResponse(status_code=500, content={"error": "internal_error"})
