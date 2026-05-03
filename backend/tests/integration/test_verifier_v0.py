@@ -667,3 +667,50 @@ async def test_verifier_v0_response_does_not_expose_private_fields(
         f"Add the field to the explicit allowlist exclusion or fix the "
         f"builder so it does not surface this column."
     )
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_does_not_consult_agent_subject_type_for_auth(
+    db, http_client,
+):
+    """Asymmetric lock: a customized-instance trust_label paired with a
+    canonical_template subject_type must STILL require auth (anonymous → 401).
+    Auth gate keys on AgentInstance.trust_label; Agent.subject_type is
+    lineage metadata only and cannot relax the gate."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmark_compatible_customized_instance",
+        instance_owner_ref="owner-real",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="canonical_template",  # mismatch with trust_label
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    # No bearer header. Auth must still fire because trust_label says
+    # "customized_instance" — subject_type is irrelevant to the gate.
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code == 401, resp.text
+
+
+@pytest.mark.asyncio
+async def test_verifier_v0_canonical_template_run_with_customized_instance_subject_type_is_publicly_readable(
+    db, http_client,
+):
+    """Symmetric lock: same scenario, asserted from the public-readability angle.
+    No 401, no 403 — just a 200, regardless of Agent.subject_type."""
+    template_id = await _seed_template(db)
+    instance = await _seed_instance(
+        db, template_id=template_id,
+        trust_label="benchmarked_canonical_template",
+    )
+    agent = await _seed_bridge_agent(
+        db, instance_id=instance.instance_id,
+        subject_type="customized_instance",
+    )
+    run = await _seed_run(db, agent_id=agent.agent_id)
+    resp = await http_client.get(f"/api/v1/verifier/runs/{run.run_id}")
+    assert resp.status_code != 401
+    assert resp.status_code != 403
+    assert resp.status_code == 200
