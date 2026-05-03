@@ -91,9 +91,31 @@ def test_legacy_validate_spec_rejects_rebalance_envelope():
 
 
 def test_template_envelope_registry_disjoint_sets():
-    """Hard regression-lock: swap and rebalance envelope sets are disjoint."""
+    """Hard regression-lock: each template's UNIQUE-to-itself fields don't appear in the other.
+
+    Spec §5.1 allows shared envelope fields (e.g. `allowed_token_universe`,
+    `max_slippage_bps`) to appear in both swap and rebalance — they mean the
+    same thing in both. The lockable invariant is that each template owns at
+    least one UNIQUE field, and those unique fields don't bleed into the
+    other template's envelope. The cross-template field-rejection invariant
+    is already locked by `test_rebalance_field_under_swap_template_key_rejected`
+    (target_allocations is rebalance-only) and
+    `test_swap_field_under_rebalance_template_key_rejected` (max_runtime_seconds
+    is swap-only).
+    """
     swap = TEMPLATE_ENVELOPE_REGISTRY["swap_executor_v1"]
     rebalance = TEMPLATE_ENVELOPE_REGISTRY["rebalance_executor_v1"]
-    assert swap & rebalance == frozenset(), (
-        f"Envelope sets must be disjoint; overlap: {swap & rebalance}"
+    swap_only = swap - rebalance
+    rebalance_only = rebalance - swap
+    assert swap_only, (
+        f"swap_executor_v1 must have at least one swap-only field; got {sorted(swap)}"
+    )
+    assert rebalance_only, (
+        f"rebalance_executor_v1 must have at least one rebalance-only field; got {sorted(rebalance)}"
+    )
+    assert swap_only.isdisjoint(rebalance), (
+        f"swap-only fields leaked into rebalance envelope: {swap_only & rebalance}"
+    )
+    assert rebalance_only.isdisjoint(swap), (
+        f"rebalance-only fields leaked into swap envelope: {rebalance_only & swap}"
     )
