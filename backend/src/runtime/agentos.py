@@ -60,6 +60,8 @@ class AgentOSRuntime:
         self,
         api_url: str,
         auth_token: str = "",
+        canonical_agent_ids: dict[str, str] | None = None,
+        # Back-compat: legacy callers pass a single string; promoted to dict.
         canonical_agent_id: str = "",
         use_output_schema: bool = False,
     ) -> None:
@@ -68,14 +70,25 @@ class AgentOSRuntime:
                 "AgentOSRuntime: api_url must be set "
                 "(see settings.AGENTOS_API_URL)."
             )
-        if not canonical_agent_id:
+
+        # Back-compat: if the dict isn't passed but the legacy string is,
+        # promote it to a {swap_executor_v1: id} dict.
+        if canonical_agent_ids is None:
+            if not canonical_agent_id:
+                raise ValueError(
+                    "AgentOSRuntime: canonical_agent_ids dict OR canonical_agent_id "
+                    "must be set. Configure at least the swap_executor_v1 canonical agent id."
+                )
+            canonical_agent_ids = {"swap_executor_v1": canonical_agent_id}
+
+        if not canonical_agent_ids:
             raise ValueError(
-                "AgentOSRuntime: canonical_agent_id must be set "
-                "(see settings.AGENTOS_CANONICAL_AGENT_ID)."
+                "AgentOSRuntime: canonical_agent_ids dict must be non-empty "
+                "(keyed by template_key). Configure at least swap_executor_v1."
             )
 
         self._client = AgentOSClient(base_url=api_url)
-        self._canonical_agent_id = canonical_agent_id
+        self._canonical_agent_ids: dict[str, str] = dict(canonical_agent_ids)
         # Empty token -> no Authorization header (private network deployments).
         self._auth_headers: dict[str, str] | None = (
             {"Authorization": f"Bearer {auth_token}"} if auth_token else None
@@ -99,15 +112,25 @@ class AgentOSRuntime:
 
         Does NOT provision a new remote agent (AgentOS has no such API).
 
+        Dispatches to the canonical agent registered for ``spec.template_key``.
+        Raises ``AgentOSRuntimeError`` if the template_key has no registered
+        canonical agent id.
+
         Persists ``spec.effective_config`` in ``InstanceHandle.extra`` so the
         customization envelope survives the DB round-trip and reaches each
         ``invoke_decide`` call. Session-level isolation + per-message config
         injection is how V2 applies per-instance customization on top of a
         shared canonical agent.
         """
+        agent_id = self._canonical_agent_ids.get(spec.template_key)
+        if not agent_id:
+            raise AgentOSRuntimeError(
+                f"unknown template_key {spec.template_key!r}; "
+                f"canonical_agent_ids covers {sorted(self._canonical_agent_ids.keys())}"
+            )
         try:
             session = await self._client.create_session(
-                agent_id=self._canonical_agent_id,
+                agent_id=agent_id,
                 user_id=spec.instance_owner_ref,
                 session_name=f"{spec.template_key}:{spec.template_version}",
                 headers=self._auth_headers,
@@ -125,7 +148,7 @@ class AgentOSRuntime:
             )
 
         return InstanceHandle(
-            instance_id=self._canonical_agent_id,
+            instance_id=agent_id,
             extra={
                 "session_id": session_id,
                 "effective_config": dict(spec.effective_config),
