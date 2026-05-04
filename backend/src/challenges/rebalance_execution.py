@@ -182,9 +182,12 @@ class RebalanceExecutionChallenge:
                 prices_used = dict(snap.get("extra", {}).get("prices_used", {}) or {})
                 break
 
-        # Fill defaults for mints missing from the observe snapshot.
-        for mint in self.allowed_token_universe:
-            prices_used.setdefault(mint, 1_000_000)
+        # Spec §5.5/§5.6: prices_used must have an entry for every mint in
+        # target_allocations or start_portfolio. Missing prices appear as None
+        # (the null is what triggers the Cat-layer price_data_present_check to fail).
+        mints_in_scope = set(self.target_allocations.keys()) | set(start_portfolio.keys())
+        for mint in mints_in_scope:
+            prices_used.setdefault(mint, None)
         for mint in self.allowed_token_universe:
             start_portfolio.setdefault(mint, 0)
 
@@ -223,7 +226,7 @@ class RebalanceExecutionChallenge:
             uri_or_ref=canonical_json,
             content_hash=content_hash,
         ))
-        await db.flush()
+        await db.commit()
 
     # ----- V0 deterministic plan (spec §5.5) -----
 
@@ -297,7 +300,11 @@ class RebalanceExecutionChallenge:
             "summary": {
                 "drift_bps_pre_run": drift_bps_pre_run,
                 "drift_bps_post_run": drift_bps_pre_run,
-                "total_value_base_units": total_value,
+                "total_traded_value_base_units": sum(leg["size_base_units"] for leg in legs),
+                "max_leg_slippage_bps": max(
+                    (leg["slippage_bps_realized"] for leg in legs),
+                    default=0,
+                ),
             },
             "start_portfolio": start_portfolio,
             "end_portfolio": start_portfolio,
