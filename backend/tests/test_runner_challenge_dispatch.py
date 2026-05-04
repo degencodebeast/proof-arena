@@ -61,3 +61,78 @@ async def test_swap_emit_run_evidence_is_no_op():
     adapter = _make_swap_adapter()
     # No-op — must not raise, must not create any artifact, must not write to DB.
     await adapter.emit_run_evidence(db=None, run=None, events=[])
+
+
+# ---------------------------------------------------------------------------
+# Task 12 — runner CHALLENGE_ADAPTERS dispatch + UnknownChallengeTypeError
+# ---------------------------------------------------------------------------
+
+from unittest.mock import AsyncMock, MagicMock
+
+from src.services.runner_service import (
+    CHALLENGE_ADAPTERS,
+    RunnerService,
+    UnknownChallengeTypeError,
+)
+
+
+def test_challenge_adapters_dict_has_swap_key():
+    """Task 12 establishes the dispatch shape with swap_execution.
+
+    Task 13 will extend this test to also assert "rebalance_execution" in
+    CHALLENGE_ADAPTERS once the rebalance class exists. At Task 12 time, the
+    conditional spread for rebalance_execution evaluates to empty because
+    RebalanceExecutionChallenge is None (ImportError fallback). See
+    .taskmaster/docs/rebalance-task12-edge-case-spec.md INV-D4.
+    """
+    assert "swap_execution" in CHALLENGE_ADAPTERS
+    assert CHALLENGE_ADAPTERS["swap_execution"] is SwapExecutionChallenge
+    # Task 13 will add: assert "rebalance_execution" in CHALLENGE_ADAPTERS
+
+
+@pytest.mark.asyncio
+async def test_unknown_challenge_type_raises_typed_error():
+    """INV-D1: unknown challenge_type raises UnknownChallengeTypeError before adapter construction."""
+    runner = RunnerService(
+        db=AsyncMock(), swap_service=MagicMock(), wallet_service=MagicMock()
+    )
+    run = MagicMock(challenge_type="completely_unknown")
+    challenge = MagicMock(config_json='{"starting_usdc": 0}')
+    provider = AsyncMock()
+    with pytest.raises(UnknownChallengeTypeError) as exc:
+        await runner.execute_run(run, challenge, provider)
+    assert "completely_unknown" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_swap_dispatch_constructs_swap_adapter(monkeypatch):
+    """Regression-lock: swap_execution still routes to SwapExecutionChallenge."""
+    runner = RunnerService(
+        db=AsyncMock(), swap_service=MagicMock(), wallet_service=MagicMock()
+    )
+    run = MagicMock(
+        challenge_type="swap_execution",
+        benchmark_wallet_address="W",
+        benchmark_wallet_ref="R",
+    )
+    challenge = MagicMock(
+        config_json='{"starting_usdc": 100, "swap_intents": [], '
+        '"allowed_routes": [], "iteration_budget": 1, '
+        '"time_budget_secs": 1, "max_slippage_bps": 100, '
+        '"usdc_mint": "U"}'
+    )
+    provider = AsyncMock()
+    captured = {}
+    original = CHALLENGE_ADAPTERS["swap_execution"]
+
+    def _spy(cfg):
+        captured["cls"] = original
+        return original(cfg)
+
+    monkeypatch.setitem(CHALLENGE_ADAPTERS, "swap_execution", _spy)
+
+    # Runner will fail later (mocks aren't fully wired); we only care that
+    # dispatch picked SwapExecutionChallenge.
+    with pytest.raises(Exception):
+        await runner.execute_run(run, challenge, provider)
+    assert captured["cls"] is SwapExecutionChallenge

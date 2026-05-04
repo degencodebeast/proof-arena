@@ -190,6 +190,9 @@ def _mock_run(**overrides):
     run.run_id = overrides.get("run_id", 1)
     run.challenge_id = overrides.get("challenge_id", 1)
     run.agent_id = overrides.get("agent_id", 1)
+    # Task 12 added CHALLENGE_ADAPTERS dispatch; existing fixtures must declare
+    # challenge_type explicitly. Default to swap_execution to preserve V1 semantics.
+    run.challenge_type = overrides.get("challenge_type", "swap_execution")
     run.benchmark_wallet_address = overrides.get("wallet_address", "wallet_addr")
     run.benchmark_wallet_ref = overrides.get("wallet_ref", "wallet_id")
     run.starting_value = overrides.get("starting_value", 1_000_000_000)

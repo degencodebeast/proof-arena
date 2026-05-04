@@ -21,6 +21,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.challenges.base import ChallengeState, CompletionResult, ScoreInputs
 from src.challenges.swap_execution import SwapExecutionChallenge
+
+# Task 13 will land RebalanceExecutionChallenge; until then, guard with ImportError
+# fallback so Task 12 can wire the dispatch shape without depending on Task 13.
+try:
+    from src.challenges.rebalance_execution import RebalanceExecutionChallenge
+except ImportError:
+    RebalanceExecutionChallenge = None  # filled in by Task 13
+
 from src.chain.program_client import AgentArenaClient
 from src.config import settings
 from src.db.models import Challenge, Run, RunEvent
@@ -40,6 +48,30 @@ from src.services.serialization import (  # noqa: E402
     compute_run_log_hash as _compute_hash,
     serialize_payload as _serialize_payload,
 )
+
+
+# ---------------------------------------------------------------------------
+# Challenge dispatch (Task 12)
+# ---------------------------------------------------------------------------
+
+
+class UnknownChallengeTypeError(Exception):
+    """Raised when execute_run sees an unrecognized challenge_type.
+
+    Silent fallback to SwapExecutionChallenge is FORBIDDEN per spec §12 kill 4.
+    """
+
+
+CHALLENGE_ADAPTERS: dict[str, type] = {
+    "swap_execution": SwapExecutionChallenge,
+    # rebalance_execution wired in Task 13 (the conditional spread evaluates
+    # to empty until RebalanceExecutionChallenge is importable).
+    **(
+        {"rebalance_execution": RebalanceExecutionChallenge}
+        if RebalanceExecutionChallenge
+        else {}
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +108,17 @@ class RunnerService:
         4. Finalize: read balance, hash events, update on-chain
         """
         config = json.loads(challenge.config_json)
-        adapter = SwapExecutionChallenge(config)
+
+        # Dispatch by challenge_type. Unknown types raise — no silent fallback.
+        try:
+            adapter_cls = CHALLENGE_ADAPTERS[run.challenge_type]
+        except KeyError as e:
+            raise UnknownChallengeTypeError(
+                f"unknown challenge_type {run.challenge_type!r}; "
+                f"CHALLENGE_ADAPTERS covers {sorted(CHALLENGE_ADAPTERS.keys())}"
+            ) from e
+        adapter = adapter_cls(config)
+
         validator = ActionValidator(self.swap, config)
 
         wallet_address = run.benchmark_wallet_address or ""

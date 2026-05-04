@@ -337,6 +337,9 @@ class TestRunnerValidationIntegration:
         run.run_id = 1
         run.challenge_id = 1
         run.agent_id = 1
+        # Task 12 added CHALLENGE_ADAPTERS dispatch; existing fixtures must declare
+        # challenge_type explicitly. swap_execution preserves V1 semantics.
+        run.challenge_type = "swap_execution"
         run.benchmark_wallet_address = "wallet"
         run.benchmark_wallet_ref = "w_id"
         run.starting_value = 1000
