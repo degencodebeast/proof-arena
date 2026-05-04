@@ -19,7 +19,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.challenges.base import ChallengeState, CompletionResult, ScoreInputs
+from src.challenges.base import ChallengeAdapter, ChallengeState, CompletionResult, ScoreInputs
 from src.challenges.swap_execution import SwapExecutionChallenge
 from src.challenges.rebalance_execution import RebalanceExecutionChallenge
 
@@ -107,7 +107,10 @@ class RunnerService:
             ) from e
         adapter = adapter_cls(config)
 
-        validator = ActionValidator(self.swap, config)
+        validator = ActionValidator(
+            self.swap, config,
+            allowed_action_types=adapter.allowed_action_types(),
+        )
 
         wallet_address = run.benchmark_wallet_address or ""
         wallet_id = run.benchmark_wallet_ref or ""
@@ -272,18 +275,22 @@ class RunnerService:
             )
             sequence_no += 1
 
-        # ----- FLATTEN -----
-        flatten_results = await self._flatten_to_usdc(
-            run, wallet_id, wallet_address, config.get("usdc_mint", ""),
-            sequence_no, events,
-        )
-        sequence_no += flatten_results["next_sequence_no"]
+        # ----- FLATTEN (gated by adapter) -----
+        if adapter.should_flatten():
+            flatten_results = await self._flatten_to_usdc(
+                run, wallet_id, wallet_address, config.get("usdc_mint", ""),
+                sequence_no, events,
+            )
+            sequence_no += flatten_results["next_sequence_no"]
 
         # ----- FINALIZE -----
         await self._finalize_run(
             run, adapter, events, sequence_no, loop_start,
             iterations_used=state.iterations_used,
         )
+
+        # ----- EVIDENCE EMISSION (per-adapter; swap is no-op, rebalance writes artifact) -----
+        await adapter.emit_run_evidence(self.db, run, events)
 
         return run
 
@@ -354,7 +361,7 @@ class RunnerService:
     async def _finalize_run(
         self,
         run: Run,
-        adapter: SwapExecutionChallenge,
+        adapter: ChallengeAdapter,
         events: list[dict[str, Any]],
         sequence_no: int,
         loop_start: float,
@@ -365,14 +372,13 @@ class RunnerService:
         now = datetime.now(timezone.utc)
         elapsed = time.monotonic() - loop_start
 
-        # Read final USDC balance
+        # Read final balances; ending_value computed by the adapter (V1-preserving for swap;
+        # V0 dry-run for rebalance returns starting_value).
         try:
             final_balances = await self.wallet.get_token_balances(wallet_address)
-            usdc_mint = adapter.usdc_mint
-            ending_value = final_balances.get(usdc_mint, 0)
         except Exception:
             final_balances = {}
-            ending_value = 0
+        ending_value = adapter.compute_ending_value(run, final_balances)
 
         run.ending_value = ending_value
 
