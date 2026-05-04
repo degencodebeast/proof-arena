@@ -26,9 +26,10 @@ class ActionValidator:
         self,
         swap_service: SwapServiceProtocol,
         challenge_config: dict[str, Any],
+        allowed_action_types: set[AgentActionType] | None = None,
     ):
         self.swap = swap_service
-        self.allowed_actions = {
+        self.allowed_actions = allowed_action_types or {
             AgentActionType.EXECUTE_SWAP,
             AgentActionType.WAIT,
             AgentActionType.FINISH,
