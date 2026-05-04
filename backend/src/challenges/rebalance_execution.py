@@ -116,3 +116,82 @@ class RebalanceExecutionChallenge:
     async def emit_run_evidence(self, db, run, events: list[dict]) -> None:
         """Lands in Task 15. For Task 13 / 14 this is a no-op stub."""
         return None
+
+    # ----- V0 deterministic plan (spec §5.5) -----
+
+    def _compute_v0_plan(
+        self,
+        start_portfolio: dict[str, int],
+        prices_used: dict[str, int | None],
+    ) -> dict:
+        """Compute the deterministic V0 rebalance plan from start_portfolio and prices.
+
+        All arithmetic is integer-only. V0 dry-run: no execution, end == start.
+        """
+        # Step 1: per-mint value in USDC base units (price=None → 0)
+        value_map: dict[str, int] = {}
+        for mint, balance in start_portfolio.items():
+            price = prices_used.get(mint)
+            if price is None:
+                value_map[mint] = 0
+            else:
+                value_map[mint] = balance * price // 1_000_000
+
+        # Step 2: total value
+        total_value: int = sum(value_map.values())
+
+        # Step 3 & 4: per-mint targets, deltas, and drift
+        target_values: dict[str, int] = {}
+        current_values: dict[str, int] = {}
+        deltas: dict[str, int] = {}
+
+        for mint in sorted(self.target_allocations):
+            weight = self.target_allocations[mint]
+            target_value = int(total_value * weight)
+            current_value = value_map.get(mint, 0)
+            target_values[mint] = target_value
+            current_values[mint] = current_value
+            deltas[mint] = target_value - current_value
+
+        if total_value == 0:
+            drift_bps_pre_run = 0
+        else:
+            drift_bps_pre_run = int(
+                sum(abs(deltas[mint]) for mint in self.target_allocations)
+                / total_value
+                * 10000
+            )
+
+        # Step 5: build legs if drift meets threshold
+        if drift_bps_pre_run < self.rebalance_threshold_bps:
+            legs: list[dict] = []
+        else:
+            legs = []
+            for mint in sorted(self.target_allocations):
+                delta = deltas[mint]
+                if delta == 0:
+                    continue
+                side = "BUY" if delta > 0 else "SELL"
+                size_base_units = min(abs(delta), self.max_trade_value)
+                legs.append({
+                    "mint": mint,
+                    "side": side,
+                    "size_base_units": size_base_units,
+                    "status": "planned",
+                    "slippage_bps_realized": 0,
+                })
+            # Sort deterministically by mint string
+            legs.sort(key=lambda leg: leg["mint"])
+
+        # Steps 6 & 7: V0 dry-run — portfolio unchanged, drift unchanged
+        return {
+            "legs": legs,
+            "summary": {
+                "drift_bps_pre_run": drift_bps_pre_run,
+                "drift_bps_post_run": drift_bps_pre_run,
+                "total_value_base_units": total_value,
+            },
+            "start_portfolio": start_portfolio,
+            "end_portfolio": start_portfolio,
+            "prices_used": prices_used,
+        }
