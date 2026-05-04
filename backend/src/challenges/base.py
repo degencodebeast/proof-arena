@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from src.db.models import Run
+    from src.db.schemas import AgentActionType
 
 
 @dataclass
@@ -91,4 +92,34 @@ class ChallengeAdapter(Protocol):
         self, run: Run
     ) -> ScoreInputs:
         """Compute raw score inputs from a completed run."""
+        ...
+
+    def allowed_action_types(self) -> set["AgentActionType"]:
+        """Set of AgentAction types this adapter permits.
+
+        Swap returns {EXECUTE_SWAP, WAIT, FINISH}; rebalance V0 returns {FINISH, WAIT}.
+        """
+        ...
+
+    def should_flatten(self) -> bool:
+        """Whether the runner should call _flatten_to_usdc after the loop.
+
+        Swap → True (V1 behavior). Rebalance V0 → False (no execution to flatten).
+        """
+        ...
+
+    def compute_ending_value(self, run: "Run", final_balances: dict[str, int]) -> int:
+        """Adapter-owned ending-value computation.
+
+        Swap → final_balances.get(self.usdc_mint, 0).
+        Rebalance V0 dry-run → run.starting_value or 0 (no execution).
+        """
+        ...
+
+    async def emit_run_evidence(self, db: Any, run: "Run", events: list[dict]) -> None:
+        """Adapter-owned per-run evidence emission, called once after _finalize_run.
+
+        Swap → no-op (V0 swap does not emit a separate VerificationArtifact).
+        Rebalance → writes one rebalance_evidence_v1 VerificationArtifact (idempotent).
+        """
         ...
