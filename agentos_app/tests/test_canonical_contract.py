@@ -116,8 +116,14 @@ def test_app_factory_declares_canonical_agent():
 
     settings = AgentOSAppSettings(_env_file=None)  # type: ignore[call-arg]
     os_instance = build_agentos(settings)
-    assert len(os_instance.agents) == 1
-    assert os_instance.agents[0].id == "swap_executor_v1"
+    ids = sorted(a.id for a in os_instance.agents)
+    assert ids == ["rebalance_executor_v1", "swap_executor_v1"], (
+        f"Phase B / Task 6 contract: AgentOS app must register both canonical "
+        f"agents; got {ids!r}"
+    )
+    assert all(a.tools == [] for a in os_instance.agents), (
+        f"Decision-only invariant: tools=[] on both canonical agents"
+    )
 
     app = build_agentos_app(settings)
     assert isinstance(app, FastAPI)

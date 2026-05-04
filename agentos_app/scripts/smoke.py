@@ -8,9 +8,16 @@ Required env:
 - ``AGENTOS_API_URL``      — e.g. ``http://agentos:7000`` (Coolify
                               private DNS) or ``https://...`` if
                               publicly exposed.
-- ``AGENTOS_CANONICAL_AGENT_ID`` — must equal what the AgentOS process
-                                    declared at startup. Default
-                                    ``swap_executor_v1``.
+- ``AGENTOS_CANONICAL_AGENT_ID`` — legacy single-template back-compat.
+                                    Must equal the agent id the AgentOS
+                                    process declared at startup. Default
+                                    ``swap_executor_v1``. For multi-
+                                    template deploys (swap + rebalance),
+                                    use ``AGENTOS_CANONICAL_AGENT_IDS_JSON``
+                                    instead (a JSON dict keyed by
+                                    template_key, e.g.
+                                    ``{"swap_executor_v1": "...",
+                                    "rebalance_executor_v1": "..."}``).
 
 Optional env:
 - ``AGENTOS_AUTH_TOKEN``   — Bearer JWT, required only if AgentOS is

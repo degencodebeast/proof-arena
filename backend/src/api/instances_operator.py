@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import PrivyUser, require_admin
-from src.config import settings
+from src.config import get_canonical_agent_ids, settings
 from src.db.engine import get_db
 from src.db.models import AgentInstance, VerificationArtifact
 from src.integrity.failure_taxonomy import SagaFailureReason
@@ -60,14 +60,18 @@ def get_runtime() -> Optional[InstanceRuntime]:
     Import is local so unit tests can override this dependency without
     paying the AgentOS SDK import cost.
     """
-    if not settings.AGENTOS_API_URL or not settings.AGENTOS_CANONICAL_AGENT_ID:
+    if not settings.AGENTOS_API_URL:
+        return None
+    try:
+        canonical_agent_ids = get_canonical_agent_ids(settings)
+    except ValueError:
         return None
     from src.runtime.agentos import AgentOSRuntime  # local import
 
     return AgentOSRuntime(
         api_url=settings.AGENTOS_API_URL,
         auth_token=settings.AGENTOS_AUTH_TOKEN,
-        canonical_agent_id=settings.AGENTOS_CANONICAL_AGENT_ID,
+        canonical_agent_ids=canonical_agent_ids,
     )
 
 

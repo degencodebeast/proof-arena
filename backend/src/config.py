@@ -6,6 +6,8 @@ All benchmark-semantic versions are independent from app_version.
 
 from __future__ import annotations
 
+import json
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -135,3 +137,46 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_canonical_agent_ids(settings: "Settings") -> dict[str, str]:
+    """Resolve canonical AgentOS agent ids per template_key with legacy fallback.
+
+    Priority:
+    1. ``AGENTOS_CANONICAL_AGENT_IDS_JSON`` if non-empty (parsed as JSON dict
+       keyed by template_key).
+    2. Legacy ``AGENTOS_CANONICAL_AGENT_ID`` promoted to
+       ``{"swap_executor_v1": <legacy_id>}``.
+
+    Per plan §Task 7: if neither source is set, raise ``ValueError`` so
+    operators see a clear configuration failure rather than a silent
+    swap-only runtime.
+
+    Raises:
+        ValueError: when JSON is malformed, decodes to non-dict, OR neither
+            source is configured.
+    """
+    raw = settings.AGENTOS_CANONICAL_AGENT_IDS_JSON
+    if raw:
+        try:
+            decoded = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"AGENTOS_CANONICAL_AGENT_IDS_JSON must be a JSON dict; "
+                f"got JSON parse error: {exc}"
+            ) from exc
+        if not isinstance(decoded, dict):
+            raise ValueError(
+                f"AGENTOS_CANONICAL_AGENT_IDS_JSON must decode to a JSON dict; "
+                f"got {type(decoded).__name__}"
+            )
+        return {str(k): str(v) for k, v in decoded.items()}
+
+    if settings.AGENTOS_CANONICAL_AGENT_ID:
+        return {"swap_executor_v1": settings.AGENTOS_CANONICAL_AGENT_ID}
+
+    raise ValueError(
+        "Neither AGENTOS_CANONICAL_AGENT_IDS_JSON nor AGENTOS_CANONICAL_AGENT_ID "
+        "is set. Configure at least the swap_executor_v1 canonical agent id "
+        "(legacy single-template) or a JSON map (multi-template)."
+    )

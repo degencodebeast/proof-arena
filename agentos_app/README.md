@@ -3,7 +3,9 @@
 Product-owned AgentOS hosted-runtime process for Proof Arena V2. Runs
 as a separate Coolify service alongside the backend; the backend
 reaches it via `AGENTOS_API_URL` and creates per-instance sessions
-against `AGENTOS_CANONICAL_AGENT_ID`.
+against the canonical agent id resolved per template_key (multi-template
+via `AGENTOS_CANONICAL_AGENT_IDS_JSON`, with legacy single-template
+fallback to `AGENTOS_CANONICAL_AGENT_ID`).
 
 **This is not `agno-agents/`.** That folder is examples / reference
 only. Product runtime code lives here.
@@ -66,8 +68,12 @@ so use the same Postgres credentials with `postgresql+psycopg://...`.
 Agno creates the `proof_arena_agentos_sessions` table automatically if
 it does not exist.
 
-The two `AGENTOS_CANONICAL_AGENT_ID` reads MUST agree. The smoke
-script (`scripts/smoke.py`) catches drift.
+The backend's per-template canonical agent ids MUST agree with what the
+AgentOS process declared at startup. Legacy single-template deploys read
+`AGENTOS_CANONICAL_AGENT_ID`; multi-template deploys read
+`AGENTOS_CANONICAL_AGENT_IDS_JSON` (a JSON dict keyed by template_key,
+e.g. `{"swap_executor_v1": "...", "rebalance_executor_v1": "..."}`). The
+smoke script (`scripts/smoke.py`) catches drift.
 
 **Env-alias implementation note.** Each operational field in
 `config.py` uses `Field(validation_alias="AGENTOS_...")` so the
