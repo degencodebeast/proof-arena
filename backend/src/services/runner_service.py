@@ -21,13 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.challenges.base import ChallengeState, CompletionResult, ScoreInputs
 from src.challenges.swap_execution import SwapExecutionChallenge
-
-# Task 13 will land RebalanceExecutionChallenge; until then, guard with ImportError
-# fallback so Task 12 can wire the dispatch shape without depending on Task 13.
-try:
-    from src.challenges.rebalance_execution import RebalanceExecutionChallenge
-except ImportError:
-    RebalanceExecutionChallenge = None  # filled in by Task 13
+from src.challenges.rebalance_execution import RebalanceExecutionChallenge
 
 from src.chain.program_client import AgentArenaClient
 from src.config import settings
@@ -64,13 +58,7 @@ class UnknownChallengeTypeError(Exception):
 
 CHALLENGE_ADAPTERS: dict[str, type] = {
     "swap_execution": SwapExecutionChallenge,
-    # rebalance_execution wired in Task 13 (the conditional spread evaluates
-    # to empty until RebalanceExecutionChallenge is importable).
-    **(
-        {"rebalance_execution": RebalanceExecutionChallenge}
-        if RebalanceExecutionChallenge
-        else {}
-    ),
+    "rebalance_execution": RebalanceExecutionChallenge,
 }
 
 

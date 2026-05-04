@@ -136,3 +136,55 @@ async def test_swap_dispatch_constructs_swap_adapter(monkeypatch):
     with pytest.raises(Exception):
         await runner.execute_run(run, challenge, provider)
     assert captured["cls"] is SwapExecutionChallenge
+
+
+# ---------------------------------------------------------------------------
+# Task 13 — RebalanceExecutionChallenge skeleton + 4 hooks
+# ---------------------------------------------------------------------------
+
+from src.challenges.rebalance_execution import RebalanceExecutionChallenge
+from tests._rebalance_helpers import make_rebalance_envelope
+
+
+def _make_rebalance_adapter():
+    cfg = make_rebalance_envelope()
+    cfg["starting_usdc"] = 100_000_000
+    return RebalanceExecutionChallenge(cfg)
+
+
+def test_rebalance_allowed_action_types_is_finish_wait_only():
+    adapter = _make_rebalance_adapter()
+    assert adapter.allowed_action_types() == {
+        AgentActionType.FINISH,
+        AgentActionType.WAIT,
+    }
+
+
+def test_rebalance_should_flatten_returns_false():
+    adapter = _make_rebalance_adapter()
+    assert adapter.should_flatten() is False
+
+
+def test_rebalance_compute_ending_value_returns_starting_value_for_dry_run():
+    """V0 dry-run: ending == starting because no execution occurred."""
+    adapter = _make_rebalance_adapter()
+
+    class FakeRun:
+        starting_value = 123_456_789
+
+    actual = adapter.compute_ending_value(run=FakeRun(), final_balances={"X": 0})
+    assert actual == 123_456_789
+
+
+def test_rebalance_compute_ending_value_handles_zero_starting():
+    adapter = _make_rebalance_adapter()
+
+    class FakeRun:
+        starting_value = 0
+
+    assert adapter.compute_ending_value(run=FakeRun(), final_balances={}) == 0
+
+
+def test_dispatch_dict_now_includes_rebalance():
+    """Once Task 13 lands, CHALLENGE_ADAPTERS contains rebalance_execution."""
+    assert CHALLENGE_ADAPTERS["rebalance_execution"] is RebalanceExecutionChallenge
