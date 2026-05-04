@@ -72,8 +72,14 @@ The backend's per-template canonical agent ids MUST agree with what the
 AgentOS process declared at startup. Legacy single-template deploys read
 `AGENTOS_CANONICAL_AGENT_ID`; multi-template deploys read
 `AGENTOS_CANONICAL_AGENT_IDS_JSON` (a JSON dict keyed by template_key,
-e.g. `{"swap_executor_v1": "...", "rebalance_executor_v1": "..."}`). The
-smoke script (`scripts/smoke.py`) catches drift.
+e.g. `{"swap_executor_v1": "...", "rebalance_executor_v1": "..."}`).
+
+The legacy `AGENTOS_CANONICAL_AGENT_ID` env var is validated by
+`scripts/smoke.py`, which checks single-agent contract drift.
+Multi-template dispatch (via `AGENTOS_CANONICAL_AGENT_IDS_JSON`) is
+resolved at backend runtime construction by `get_canonical_agent_ids()`
+in `backend/src/config.py`. Adding multi-template smoke validation is
+a future operator-tool enhancement.
 
 **Env-alias implementation note.** Each operational field in
 `config.py` uses `Field(validation_alias="AGENTOS_...")` so the
