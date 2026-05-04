@@ -10,7 +10,12 @@ Spec §5.5: canonical evidence JSON is stored inline in VerificationArtifact.uri
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from typing import Any
+
+from sqlalchemy import select
 
 from src.challenges.base import (
     ChallengeState,
@@ -18,7 +23,13 @@ from src.challenges.base import (
     QuoteOption,
     ScoreInputs,
 )
+from src.db.models import Agent, AgentInstance, VerificationArtifact
 from src.db.schemas import AgentActionType
+
+# Synthetic-Agent bridge regexes — same shape as cats.wallet_safety
+# (backend/src/integrity/cats/wallet_safety.py:_METADATA_RE / _PRIVY_RE).
+_METADATA_RE = re.compile(r"^agent_instances/(?P<id>\d+)$")
+_PRIVY_RE = re.compile(r"^instance:(?P<id>\d+)$")
 
 
 class RebalanceExecutionChallenge:
@@ -114,8 +125,105 @@ class RebalanceExecutionChallenge:
         return getattr(run, "starting_value", 0) or 0
 
     async def emit_run_evidence(self, db, run, events: list[dict]) -> None:
-        """Lands in Task 15. For Task 13 / 14 this is a no-op stub."""
-        return None
+        """Spec §5.5 — write one rebalance_evidence_v1 artifact (idempotent).
+
+        Resolves `instance_id` deterministically here (no Task 19 deferral) via
+        the existing synthetic-Agent bridge: Run → Agent → AgentInstance, parsing
+        `agent.metadata_ref` (`agent_instances/{id}`) with `agent.privy_user_id`
+        (`instance:{id}`) as fallback. This matches `cats.wallet_safety._resolve_instance`.
+        """
+        # Idempotency: skip if an artifact already exists for (run_id, type).
+        existing = (
+            await db.execute(
+                select(VerificationArtifact).where(
+                    VerificationArtifact.run_id == run.run_id,
+                    VerificationArtifact.artifact_type == "rebalance_evidence_v1",
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+
+        # Resolve instance_id via the synthetic-Agent bridge.
+        agent = await db.get(Agent, run.agent_id)
+        if agent is None:
+            raise RuntimeError(
+                f"emit_run_evidence: cannot resolve Agent for run {run.run_id} "
+                f"(agent_id={run.agent_id})"
+            )
+        instance_id: int | None = None
+        if agent.metadata_ref:
+            m = _METADATA_RE.match(agent.metadata_ref)
+            if m:
+                instance_id = int(m.group("id"))
+        if instance_id is None and agent.privy_user_id:
+            m = _PRIVY_RE.match(agent.privy_user_id)
+            if m:
+                instance_id = int(m.group("id"))
+        if instance_id is None:
+            raise RuntimeError(
+                f"emit_run_evidence: synthetic-Agent bridge unparseable for run {run.run_id} "
+                f"(agent_id={run.agent_id}, metadata_ref={agent.metadata_ref!r}, "
+                f"privy_user_id={agent.privy_user_id!r})"
+            )
+        instance = await db.get(AgentInstance, instance_id)
+        if instance is None:
+            raise RuntimeError(
+                f"emit_run_evidence: AgentInstance {instance_id} missing for run {run.run_id}"
+            )
+
+        # Build start_portfolio / prices_used from the latest observe event.
+        start_portfolio: dict[str, int] = {}
+        prices_used: dict[str, int | None] = {}
+        for event in reversed(events):
+            if event.get("event_type") == "observe":
+                snap = event.get("state_snapshot_json") or {}
+                start_portfolio = dict(snap.get("portfolio", {}))
+                prices_used = dict(snap.get("extra", {}).get("prices_used", {}) or {})
+                break
+
+        # Fill defaults for mints missing from the observe snapshot.
+        for mint in self.allowed_token_universe:
+            prices_used.setdefault(mint, 1_000_000)
+        for mint in self.allowed_token_universe:
+            start_portfolio.setdefault(mint, 0)
+
+        plan = self._compute_v0_plan(start_portfolio=start_portfolio, prices_used=prices_used)
+
+        payload = {
+            "evidence_schema_version": "rebalance_evidence_v1",
+            "run_id": run.run_id,
+            "instance_id": instance.instance_id,
+            "template_key": "rebalance_executor_v1",
+            "effective_envelope": {
+                "allowed_token_universe": list(self.allowed_token_universe),
+                "target_allocations": dict(self.target_allocations),
+                "rebalance_threshold_bps": self.rebalance_threshold_bps,
+                "max_slippage_bps": self.max_slippage_bps,
+                "max_position_weight": self.max_position_weight,
+                "max_trade_value": self.max_trade_value,
+                "dry_run": self.dry_run,
+            },
+            "target_allocations": dict(self.target_allocations),
+            "prices_used": prices_used,
+            "start_portfolio": start_portfolio,
+            "end_portfolio": dict(start_portfolio),  # V0 dry-run: end == start
+            "legs": plan["legs"],
+            "dry_run": self.dry_run,
+            "summary": plan["summary"],
+        }
+        canonical_json = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+        )
+        content_hash = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+        db.add(VerificationArtifact(
+            run_id=run.run_id,
+            artifact_type="rebalance_evidence_v1",
+            uri_or_ref=canonical_json,
+            content_hash=content_hash,
+        ))
+        await db.flush()
 
     # ----- V0 deterministic plan (spec §5.5) -----
 
