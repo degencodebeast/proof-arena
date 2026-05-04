@@ -22,6 +22,7 @@ from src.challenges.base import (
     QuoteOption,
     ScoreInputs,
 )
+from src.db.schemas import AgentActionType
 
 
 class SwapExecutionChallenge:
@@ -127,3 +128,21 @@ class SwapExecutionChallenge:
             iterations_used=iterations_used,
             time_used_secs=time_used_secs,
         )
+
+    def allowed_action_types(self) -> set[AgentActionType]:
+        return {
+            AgentActionType.EXECUTE_SWAP,
+            AgentActionType.WAIT,
+            AgentActionType.FINISH,
+        }
+
+    def should_flatten(self) -> bool:
+        return True
+
+    def compute_ending_value(self, run, final_balances: dict[str, int]) -> int:
+        """V1-preserving: equivalent to runner's prior inline lookup."""
+        return final_balances.get(self.usdc_mint, 0)
+
+    async def emit_run_evidence(self, db, run, events: list[dict]) -> None:
+        """V0 swap path emits no separate evidence artifact."""
+        return None
