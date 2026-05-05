@@ -11,7 +11,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import AgentInstance, AgentTemplate, Run, VerificationArtifact
+from src.db.models import AgentInstance, AgentTemplate, Run, RunEvent, VerificationArtifact
 from src.integrity.cats.schemas import (
     RebalancePolicyCatResponse,
     RebalancePolicyEvidence,
@@ -86,14 +86,14 @@ async def compute_rebalance_policy_cat(
         )
     ).scalar_one_or_none()
 
-    check_results = await _run_checks(run, instance, template, artifact)
+    check_results = await _run_checks(db, run, instance, template, artifact)
     return _compose(
         run=run, agent=agent, instance=instance,
         artifact=artifact, check_results=check_results,
     )
 
 
-async def _run_checks(run, instance, template, artifact) -> dict[str, bool]:
+async def _run_checks(db, run, instance, template, artifact) -> dict[str, bool]:
     results: dict[str, bool] = {cid: True for cid in _CHECK_IDS}
     if artifact is None:
         results["rebalance_evidence_present_check"] = False
@@ -158,7 +158,27 @@ async def _run_checks(run, instance, template, artifact) -> dict[str, bool]:
         summary.get("drift_bps_post_run") == summary.get("drift_bps_pre_run")
     )
 
-    # dry_run_or_devnet_check is filled in by Task 21.
+    # dry_run_or_devnet_check (3-clause AND predicate per spec §5.6 round-5).
+    clause_dry = bool(envelope.get("dry_run", False))
+    clause_no_executed_leg = all(
+        leg.get("status") != "executed" for leg in payload.get("legs", [])
+    )
+    # No RunEvent for this run.run_id may carry a non-empty tx_signature.
+    tx_sig_rows = (
+        await db.execute(
+            select(RunEvent).where(
+                RunEvent.run_id == run.run_id,
+                RunEvent.tx_signature.isnot(None),
+                RunEvent.tx_signature != "",
+            ).limit(1)
+        )
+    ).scalars().all()
+    clause_no_tx_sig = not tx_sig_rows
+    clause_hosted = (run.provider_type == "hosted_instance")
+    results["dry_run_or_devnet_check"] = (
+        clause_dry and clause_no_executed_leg and clause_no_tx_sig and clause_hosted
+    )
+
     return results
 
 
