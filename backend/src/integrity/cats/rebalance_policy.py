@@ -6,7 +6,7 @@ Trust path: deterministic only. NO LLM SDK imports anywhere in this module.
 from __future__ import annotations
 
 import hashlib
-import json
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

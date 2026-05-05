@@ -66,6 +66,10 @@ async def test_rebalance_policy_cat_all_pass_when_valid_artifact_present(db):
 
     resp = await compute_rebalance_policy_cat(db, run.run_id)
 
+    # Plan-required Literal + lifecycle locks (spec §5.6).
+    assert resp.cat == "rebalance_policy"
+    assert resp.cat_version == "v1"
+    assert resp.run_completion_status == "complete"
     assert resp.result == "pass"
     assert resp.reason is None
     assert resp.critique == ""
