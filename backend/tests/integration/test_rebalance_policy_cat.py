@@ -60,7 +60,9 @@ async def test_rebalance_policy_cat_all_pass_when_valid_artifact_present(db):
 
     _tmpl, instance, agent = await make_rebalance_instance(db)
     run = await make_completed_rebalance_run(
-        db, agent=agent, instance=instance, with_evidence=True
+        db, agent=agent, instance=instance, with_evidence=True,
+        # drift_bps_pre_run=0 < rebalance_threshold_bps=50 → no legs required for consistency
+        evidence_overrides={"legs": []},
     )
     await db.commit()
 
@@ -109,9 +111,10 @@ async def test_rebalance_policy_cat_fails_evidence_check_when_artifact_absent(db
 
     assert resp.result == "fail"
     assert resp.reason is None  # never a RunInvalidReason (spec §6 non-goal 6)
-    failing = [c for c in resp.checks if c.result == "fail"]
-    assert len(failing) == 1
-    assert failing[0].check_id == "rebalance_evidence_present_check"
+    failing_ids = {c.check_id for c in resp.checks if c.result == "fail"}
+    # All checks fail when artifact is absent (no data to evaluate downstream checks).
+    assert "rebalance_evidence_present_check" in failing_ids
+    assert len(failing_ids) == len(resp.checks)
     # Evidence block reflects absent artifact.
     assert resp.evidence.evidence_artifact_id is None
     assert resp.evidence.evidence_content_hash is None
@@ -157,3 +160,207 @@ async def test_rebalance_policy_cat_fails_evidence_check_on_hash_mismatch(db):
     assert resp.evidence.evidence_artifact_id == artifact.artifact_id
     # The stored (corrupted) hash is surfaced, not the recomputed one.
     assert resp.evidence.evidence_content_hash == "0" * 64
+
+
+# =====================================================================
+# Task 20 — per-check failing tests (one violation per predicate)
+# =====================================================================
+
+
+@pytest.mark.asyncio
+async def test_target_allocation_sum_check_fails_when_sum_off(db):
+    """target_allocations summing to 0.7 (not 1.0) → target_allocation_sum_check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={"target_allocations": {"X": 0.4, "Y": 0.3}},  # sum 0.7 ≠ 1.0
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "target_allocation_sum_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_allowed_token_universe_check_fails_when_mint_outside_universe(db):
+    """target_allocations containing a mint not in allowed_token_universe → check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "target_allocations": {"OutsideMint11111111111111111111111111111111": 1.0},
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "allowed_token_universe_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_price_data_present_check_fails_when_price_is_null(db):
+    """prices_used has a None entry for a portfolio mint → price_data_present_check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _SOL = "So11111111111111111111111111111111111111112"
+    _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    _USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "prices_used": {_SOL: None, _USDC: 1_000_000, _USDT: 1_000_000},
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "price_data_present_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_rebalance_threshold_check_fails_when_threshold_out_of_range(db):
+    """rebalance_threshold_bps=0 (out of [1,5000]) → rebalance_threshold_check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    bad_envelope = make_rebalance_envelope()
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "effective_envelope": {
+                "allowed_token_universe": bad_envelope["allowed_token_universe"],
+                "target_allocations": bad_envelope["target_allocations"],
+                "rebalance_threshold_bps": 0,  # out of [1,5000]
+                "max_slippage_bps": bad_envelope["max_slippage_bps"],
+                "max_position_weight": bad_envelope["max_position_weight"],
+                "max_trade_value": bad_envelope["max_trade_value"],
+                "dry_run": True,
+            },
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "rebalance_threshold_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_max_trade_value_check_fails_when_leg_exceeds_limit(db):
+    """A leg with size_base_units > max_trade_value → max_trade_value_check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _SOL = "So11111111111111111111111111111111111111112"
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "legs": [
+                {
+                    "mint": _SOL,
+                    "side": "BUY",
+                    "size_base_units": 2_000_000_000,  # > max_trade_value 1_000_000_000
+                    "slippage_bps_realized": 0,
+                    "status": "planned",
+                },
+            ],
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "max_trade_value_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_max_position_weight_check_fails_when_weight_exceeds_limit(db):
+    """A target_allocations weight > max_position_weight → max_position_weight_check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _SOL = "So11111111111111111111111111111111111111112"
+    _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    _USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            # max_position_weight in envelope is 0.7; put SOL at 0.8 to violate
+            "target_allocations": {_SOL: 0.8, _USDC: 0.1, _USDT: 0.1},
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "max_position_weight_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_max_slippage_check_fails_when_leg_has_nonzero_realized_slippage(db):
+    """A leg with slippage_bps_realized != 0 → max_slippage_check fails (V0 lock)."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _SOL = "So11111111111111111111111111111111111111112"
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "legs": [
+                {
+                    "mint": _SOL,
+                    "side": "BUY",
+                    "size_base_units": 0,
+                    "slippage_bps_realized": 5,  # V0 lock requires 0
+                    "status": "planned",
+                },
+            ],
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "max_slippage_check" in failing_ids
+
+
+@pytest.mark.asyncio
+async def test_post_trade_allocation_drift_check_fails_when_post_differs_from_pre(db):
+    """drift_bps_post_run != drift_bps_pre_run → post_trade_allocation_drift_check fails."""
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _tmpl, instance, agent = await make_rebalance_instance(db)
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "summary": {
+                "drift_bps_pre_run": 0,
+                "drift_bps_post_run": 99,  # differs from pre → V0 violation
+                "total_traded_value_base_units": 0,
+                "max_leg_slippage_bps": 0,
+            },
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    assert response.result == "fail"
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+    assert "post_trade_allocation_drift_check" in failing_ids

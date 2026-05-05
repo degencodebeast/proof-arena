@@ -6,6 +6,7 @@ Trust path: deterministic only. NO LLM SDK imports anywhere in this module.
 from __future__ import annotations
 
 import hashlib
+import json
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -92,18 +93,72 @@ async def compute_rebalance_policy_cat(
     )
 
 
-# Internal helpers (filled in by Tasks 20-21):
 async def _run_checks(run, instance, template, artifact) -> dict[str, bool]:
-    """Returns dict of check_id → pass(bool). Implementation lands in Task 20-21."""
-    # Stub for Task 19: every check passes if artifact present and hash matches.
     results: dict[str, bool] = {cid: True for cid in _CHECK_IDS}
     if artifact is None:
         results["rebalance_evidence_present_check"] = False
-    else:
-        body = artifact.uri_or_ref
-        expected_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
-        if expected_hash != artifact.content_hash:
-            results["rebalance_evidence_present_check"] = False
+        # Without evidence, downstream checks default to fail (no data).
+        for cid in _CHECK_IDS:
+            if cid != "rebalance_evidence_present_check":
+                results[cid] = False
+        return results
+
+    body = artifact.uri_or_ref
+    expected_hash = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    if expected_hash != artifact.content_hash:
+        results["rebalance_evidence_present_check"] = False
+        return results
+    payload = json.loads(body)
+    envelope = payload.get("effective_envelope", {})
+
+    # target_allocation_sum_check
+    target = payload.get("target_allocations", {})
+    total = sum(float(v) for v in target.values())
+    results["target_allocation_sum_check"] = abs(total - 1.0) <= 0.01
+
+    # allowed_token_universe_check
+    universe = set(envelope.get("allowed_token_universe", []))
+    results["allowed_token_universe_check"] = set(target.keys()).issubset(universe)
+
+    # price_data_present_check
+    prices = payload.get("prices_used", {})
+    needed = set(target.keys()) | set(payload.get("start_portfolio", {}).keys())
+    results["price_data_present_check"] = all(prices.get(m) is not None for m in needed)
+
+    # rebalance_threshold_check
+    th = envelope.get("rebalance_threshold_bps")
+    drift_pre = payload.get("summary", {}).get("drift_bps_pre_run", 0)
+    has_legs = bool(payload.get("legs"))
+    th_in_range = isinstance(th, int) and 1 <= th <= 5000
+    drift_legs_consistent = (drift_pre >= th and has_legs) or (drift_pre < th and not has_legs)
+    results["rebalance_threshold_check"] = th_in_range and drift_legs_consistent
+
+    # max_trade_value_check
+    mtv = envelope.get("max_trade_value", 0)
+    results["max_trade_value_check"] = all(
+        leg.get("size_base_units", 0) <= mtv for leg in payload.get("legs", [])
+    )
+
+    # max_position_weight_check
+    mpw = envelope.get("max_position_weight", 0.0)
+    results["max_position_weight_check"] = all(
+        0.0 < float(w) <= mpw for w in target.values()
+    )
+
+    # max_slippage_check
+    msl = envelope.get("max_slippage_bps")
+    results["max_slippage_check"] = (
+        isinstance(msl, int) and 0 <= msl <= 500
+        and all(leg.get("slippage_bps_realized", 0) == 0 for leg in payload.get("legs", []))
+    )
+
+    # post_trade_allocation_drift_check (V0 dry-run: post == pre)
+    summary = payload.get("summary", {})
+    results["post_trade_allocation_drift_check"] = (
+        summary.get("drift_bps_post_run") == summary.get("drift_bps_pre_run")
+    )
+
+    # dry_run_or_devnet_check is filled in by Task 21.
     return results
 
 
