@@ -1,16 +1,31 @@
 """AgentOS canonical-agent smoke test (operator-run).
 
-Validates the env-pair contract and the Task 12 deploy-time invariants
-without exercising the wallet/Orca path. Read-only by default; pass
-``--create-session`` to additionally exercise session creation.
+Validates the legacy single-agent env-pair contract and the Task 12
+deploy-time invariants without exercising the wallet/Orca path.
+Read-only by default; pass ``--create-session`` to additionally
+exercise session creation.
+
+Scope: this script covers the legacy ``AGENTOS_CANONICAL_AGENT_ID``
+(single-template) path only. Multi-template dispatch via
+``AGENTOS_CANONICAL_AGENT_IDS_JSON`` is handled at backend runtime
+construction by ``get_canonical_agent_ids()`` in
+``backend/src/config.py``. Adding multi-template smoke validation is a
+future operator-tool enhancement.
 
 Required env:
 - ``AGENTOS_API_URL``      — e.g. ``http://agentos:7000`` (Coolify
                               private DNS) or ``https://...`` if
                               publicly exposed.
-- ``AGENTOS_CANONICAL_AGENT_ID`` — must equal what the AgentOS process
-                                    declared at startup. Default
-                                    ``swap_executor_v1``.
+- ``AGENTOS_CANONICAL_AGENT_ID`` — legacy single-template back-compat.
+                                    Must equal the agent id the AgentOS
+                                    process declared at startup. Default
+                                    ``swap_executor_v1``. For multi-
+                                    template deploys (swap + rebalance),
+                                    use ``AGENTOS_CANONICAL_AGENT_IDS_JSON``
+                                    instead (a JSON dict keyed by
+                                    template_key, e.g.
+                                    ``{"swap_executor_v1": "...",
+                                    "rebalance_executor_v1": "..."}``).
 
 Optional env:
 - ``AGENTOS_AUTH_TOKEN``   — Bearer JWT, required only if AgentOS is
@@ -42,9 +57,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="agentos_app.scripts.smoke",
         description=(
-            "AgentOS canonical-agent smoke test. Verifies the env-pair "
-            "contract between backend AGENTOS_CANONICAL_AGENT_ID and "
-            "the AgentOS-declared agent id."
+            "AgentOS canonical-agent smoke test. Validates the legacy "
+            "single-agent AGENTOS_CANONICAL_AGENT_ID env-pair contract. "
+            "Multi-template (AGENTOS_CANONICAL_AGENT_IDS_JSON) is handled "
+            "by backend runtime construction; multi-template smoke is a "
+            "future enhancement."
         ),
     )
     p.add_argument(

@@ -296,13 +296,16 @@ async def test_list_templates_returns_all(db):
     """
     from datetime import datetime, timezone
 
-    from src.services.template_service import TemplateService
+    from src.services.template_service import REBALANCE_EXECUTOR_V1_SEED, TemplateService
 
     svc = TemplateService(db)
     t1 = await svc.register_template(**_valid_register_kwargs())
     t2 = await svc.register_template(
         **_valid_register_kwargs(
-            template_key="another_v1", template_version="another_v1"
+            template_key=REBALANCE_EXECUTOR_V1_SEED["template_key"],
+            template_version=REBALANCE_EXECUTOR_V1_SEED["template_version"],
+            allowed_fields_json=REBALANCE_EXECUTOR_V1_SEED["allowed_fields_json"],
+            default_config_json=REBALANCE_EXECUTOR_V1_SEED["default_config_json"],
         )
     )
     t1.created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -310,7 +313,7 @@ async def test_list_templates_returns_all(db):
     await db.commit()
 
     rows = await svc.list_templates()
-    assert [r.template_key for r in rows] == ["another_v1", "swap_executor_v1"]
+    assert [r.template_key for r in rows] == ["rebalance_executor_v1", "swap_executor_v1"]
 
 
 # ---------------------------------------------------------------------
@@ -319,14 +322,16 @@ async def test_list_templates_returns_all(db):
 
 
 async def test_list_deployable_only_excludes_signposts(db):
-    from src.services.template_service import TemplateService
+    from src.services.template_service import REBALANCE_EXECUTOR_V1_SEED, TemplateService
 
     svc = TemplateService(db)
     await svc.register_template(**_valid_register_kwargs())
     await svc.register_template(
         **_valid_register_kwargs(
-            template_key="signpost_v1",
-            template_version="signpost_v1",
+            template_key=REBALANCE_EXECUTOR_V1_SEED["template_key"],
+            template_version=REBALANCE_EXECUTOR_V1_SEED["template_version"],
+            allowed_fields_json=REBALANCE_EXECUTOR_V1_SEED["allowed_fields_json"],
+            default_config_json=REBALANCE_EXECUTOR_V1_SEED["default_config_json"],
             is_deployable=False,
         )
     )

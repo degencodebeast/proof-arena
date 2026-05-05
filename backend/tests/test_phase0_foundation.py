@@ -234,6 +234,18 @@ class TestProtocolCompliance:
                     time_used_secs=0.0,
                 )
 
+            def allowed_action_types(self):
+                return set()
+
+            def should_flatten(self):
+                return False
+
+            def compute_ending_value(self, run, final_balances):
+                return 0
+
+            async def emit_run_evidence(self, db, run, events):
+                pass
+
         assert isinstance(StubAdapter(), ChallengeAdapter)
 
     def test_action_validator_stub(self):

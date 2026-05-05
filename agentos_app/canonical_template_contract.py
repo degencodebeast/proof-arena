@@ -47,6 +47,7 @@ _ensure_backend_on_path()
 # Dockerfile, never inline a vendored copy of the dict.
 from src.services.template_service import (  # noqa: E402 — sys.path mutation must precede this
     SWAP_EXECUTOR_V1_SEED as SWAP_EXECUTOR_V1_SEED,
+    REBALANCE_EXECUTOR_V1_SEED as REBALANCE_EXECUTOR_V1_SEED,
 )
 
 
@@ -70,8 +71,30 @@ def canonical_template_key() -> str:
     return SWAP_EXECUTOR_V1_SEED["template_key"]
 
 
+def canonical_seeds() -> dict[str, dict]:
+    """Return both canonical seeds keyed by template_key.
+
+    Object-identity to backend SoT preserved — never copied / forked.
+    Each value `is` the corresponding seed dict in
+    ``src.services.template_service``; the agentos_app surface is a
+    re-export, not a parallel definition.
+    """
+    return {
+        "swap_executor_v1":      SWAP_EXECUTOR_V1_SEED,
+        "rebalance_executor_v1": REBALANCE_EXECUTOR_V1_SEED,
+    }
+
+
+def canonical_template_keys() -> list[str]:
+    """List both canonical template keys (sorted)."""
+    return sorted(["swap_executor_v1", "rebalance_executor_v1"])
+
+
 __all__: list[str] = [
     "SWAP_EXECUTOR_V1_SEED",
-    "canonical_system_prompt",
+    "REBALANCE_EXECUTOR_V1_SEED",
+    "canonical_seeds",
+    "canonical_template_keys",
     "canonical_template_key",
+    "canonical_system_prompt",
 ]

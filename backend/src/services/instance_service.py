@@ -51,7 +51,7 @@ from src.db.models import AgentInstance, AgentTemplate, VerificationArtifact
 from src.integrity.failure_taxonomy import SagaFailureReason
 from src.integrity.saga_statuses import SagaStatus
 from src.policy.allowlists import ORCA_DEVNET_ALLOWLIST
-from src.policy.engine import InstancePolicyEngine, PolicyEngineError
+from src.policy.engine import InstancePolicyEngine, PolicyEngineError, validate_spec_for_template
 from src.runtime.base import InstanceHandle, InstanceRuntime, InstanceSpec
 from src.services.wallet_service import (
     ChainMismatchError,
@@ -139,28 +139,31 @@ class InstanceService:
                 f"owner_ref length {len(owner_ref)} exceeds 128-char limit",
             )
 
-        # Step 1 — validate spec.
-        validation = self.policy_engine.validate_spec(effective_config)
+        # Step 1 — template-aware envelope validation (spec §5.2 round-3 lock).
+        if template_key == "swap_executor_v1":
+            validation = self.policy_engine.validate_spec(effective_config)
+        else:
+            validation = validate_spec_for_template(template_key, effective_config)
         if not validation.ok:
             raise InstanceDeployError(
                 SagaFailureReason.PROVISIONING_FAILED.value,
                 "; ".join(validation.errors),
             )
 
-        # Step 2 — build wallet policy (provider-agnostic). The chain guard
-        # lives inside the engine; hosted V2 is devnet-only per the Phase-0
-        # locked posture.
-        try:
-            self.policy_engine.build_wallet_policy(
-                spec=effective_config,
-                allowlist_profile=ORCA_DEVNET_ALLOWLIST,
-                chain="devnet",
-            )
-        except PolicyEngineError as exc:
-            raise InstanceDeployError(
-                SagaFailureReason.PROVISIONING_FAILED.value,
-                str(exc),
-            ) from exc
+        # Step 2 — build wallet policy ONLY for swap (rebalance V0 reuses the wallet
+        # created at swap-deploy time under the Phase-0 ORCA devnet allowlist).
+        if template_key == "swap_executor_v1":
+            try:
+                self.policy_engine.build_wallet_policy(
+                    spec=effective_config,
+                    allowlist_profile=ORCA_DEVNET_ALLOWLIST,
+                    chain="devnet",
+                )
+            except PolicyEngineError as exc:
+                raise InstanceDeployError(
+                    SagaFailureReason.PROVISIONING_FAILED.value,
+                    str(exc),
+                ) from exc
 
         # Step 3 — create hosted wallet. The policy_id points at a
         # pre-existing Privy policy created out of band during Phase 0; the

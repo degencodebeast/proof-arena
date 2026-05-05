@@ -1,8 +1,8 @@
-"""Canonical V2 agent factory.
+"""Canonical V2 agent factories.
 
-Decision-only contract (Task 12 contract note §3): the agent does not
-own wallets, call Orca, or execute swaps. ``tools=[]`` is therefore a
-hard invariant.
+Decision-only contract (Task 12 contract note §3): agents do not own
+wallets, call Orca, or execute swaps. ``tools=[]`` is therefore a hard
+invariant on ALL canonical agents.
 
 Mirrors the provider switch in ``backend/src/agents/arena_agent.py``
 so model selection stays consistent across V1 LocalAgentProvider and
@@ -16,12 +16,37 @@ from typing import Any
 from agno.agent import Agent
 
 from agentos_app.canonical_template_contract import (
+    REBALANCE_EXECUTOR_V1_SEED,
     canonical_system_prompt,
 )
 from agentos_app.config import AgentOSAppSettings, load_settings
 
 
 SUPPORTED_PROVIDERS = ("openrouter", "anthropic", "openai", "google")
+
+
+def _build_canonical_agent(
+    *,
+    agent_id: str,
+    instructions: str,
+    settings: AgentOSAppSettings,
+    db: Any | None,
+) -> Agent:
+    """Shared factory for canonical agents.
+
+    Both canonical agents (swap, rebalance) MUST have ``tools=[]`` per the
+    V0 decision-only invariant (spec §5.3, §7.2). Generalized tool calling
+    is a follow-on runtime spec.
+    """
+    return Agent(
+        id=agent_id,
+        name=agent_id,
+        instructions=instructions,
+        model=_create_model(settings),
+        db=db,
+        tools=[],         # decision-only invariant — DO NOT CHANGE
+        markdown=False,
+    )
 
 
 def build_canonical_swap_executor_agent(
@@ -41,14 +66,34 @@ def build_canonical_swap_executor_agent(
     - deterministic temp via the model factory.
     """
     settings = settings or load_settings()
-    return Agent(
-        id=settings.canonical_agent_id,
-        name=settings.canonical_agent_id,
+    return _build_canonical_agent(
+        agent_id=settings.canonical_agent_id,
         instructions=canonical_system_prompt(),
-        model=_create_model(settings),
+        settings=settings,
         db=db,
-        tools=[],
-        markdown=False,
+    )
+
+
+def build_canonical_rebalance_executor_agent(
+    settings: AgentOSAppSettings | None = None,
+    db: Any | None = None,
+) -> Agent:
+    """V0 rebalance canonical agent — decision-only.
+
+    Keeps tools=[] and reads system_prompt verbatim from
+    REBALANCE_EXECUTOR_V1_SEED (object identity preserved). Generalized
+    tool calling is a follow-on runtime spec; do not add tools here.
+
+    Per V0 spec §5.3: agent emits existing AgentAction shapes only
+    (preferably FINISH); RebalanceExecutionChallenge does the
+    deterministic plan + evidence work in Task 13+.
+    """
+    settings = settings or load_settings()
+    return _build_canonical_agent(
+        agent_id=REBALANCE_EXECUTOR_V1_SEED["template_key"],
+        instructions=REBALANCE_EXECUTOR_V1_SEED["system_prompt"],
+        settings=settings,
+        db=db,
     )
 
 

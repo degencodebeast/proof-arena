@@ -10,7 +10,10 @@ from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel
 
-from src.integrity.cats.schemas import WalletSafetyCatResponse
+from src.integrity.cats.schemas import (
+    RebalancePolicyCatResponse,
+    WalletSafetyCatResponse,
+)
 
 
 class VerifierRunBlock(BaseModel):
@@ -66,6 +69,7 @@ class VerifierEvidenceBlock(BaseModel):
 
 class VerifierCatsBlock(BaseModel):
     wallet_safety: WalletSafetyCatResponse
+    rebalance_policy: RebalancePolicyCatResponse | None = None
 
 
 class VerifierRunResponse(BaseModel):

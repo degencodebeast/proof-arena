@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import PrivyUser, get_current_user
-from src.config import settings
+from src.config import get_canonical_agent_ids, settings
 from src.db.engine import get_db
 from src.db.models import Agent, AgentInstance, AgentTemplate, RankSnapshot, Run
 from src.services.instance_service import InstanceDeployError, InstanceService
@@ -56,11 +56,15 @@ def get_instance_service(
         not settings.HOSTED_WALLET_POLICY_ID
         or not settings.AUTHORIZATION_PUBKEY_B64
         or not settings.AGENTOS_API_URL
-        or not settings.AGENTOS_CANONICAL_AGENT_ID
         or not settings.PRIVY_APP_ID
         or not settings.PRIVY_APP_SECRET
         or not settings.PRIVY_AUTHORIZATION_PRIVATE_KEY
     ):
+        return None
+
+    try:
+        canonical_agent_ids = get_canonical_agent_ids(settings)
+    except ValueError:
         return None
 
     # Local imports so unit tests that override this factory don't pay
@@ -94,7 +98,7 @@ def get_instance_service(
     runtime = AgentOSRuntime(
         api_url=settings.AGENTOS_API_URL,
         auth_token=settings.AGENTOS_AUTH_TOKEN,
-        canonical_agent_id=settings.AGENTOS_CANONICAL_AGENT_ID,
+        canonical_agent_ids=canonical_agent_ids,
     )
     return InstanceService(
         db=db,
