@@ -30,3 +30,29 @@ class WalletSafetyCatResponse(BaseModel):
     scope_note: str | None = None
     evidence: WalletSafetyEvidence
     checks: list[WalletSafetyCheck]
+
+
+class RebalancePolicyEvidence(BaseModel):
+    """Locked Cat evidence allowlist; uri_or_ref is NEVER a field on this surface."""
+    evidence_artifact_id: int | None = None
+    evidence_content_hash: str | None = None
+    run_log_hash: str | None = None
+    primary_event_id: int | None = None
+    verifier_url: str | None = None  # Reserved; null in V0.
+
+
+class RebalancePolicyCatResponse(BaseModel):
+    cat: Literal["rebalance_policy"] = "rebalance_policy"
+    cat_version: Literal["v1"] = "v1"
+    run_id: int
+    instance_id: int
+    subject_type: str       # lineage metadata only
+    trust_label: str        # auth gate (mirrors WalletSafetyCat)
+    result: Literal["pass", "fail"]
+    reason: str | None = None
+    critique: str = ""
+    run_completion_status: Literal["complete", "incomplete", "invalid"]
+    off_scope_invalid_reason: str | None = None
+    scope_note: str | None = None
+    evidence: RebalancePolicyEvidence
+    checks: list[WalletSafetyCheck]   # reuse same check_id/result shape
