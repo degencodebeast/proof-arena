@@ -168,14 +168,26 @@ async def test_rebalance_policy_cat_fails_evidence_check_on_hash_mismatch(db):
 
 
 @pytest.mark.asyncio
-async def test_target_allocation_sum_check_fails_when_sum_off(db):
-    """target_allocations summing to 0.7 (not 1.0) → target_allocation_sum_check fails."""
+async def test_target_allocation_sum_check_fails_when_deployed_envelope_sum_off(db):
+    """Deployed envelope target sums to 0.7 (not 1.0) → target_allocation_sum_check fails.
+
+    Spec §5.6 line 209: sum(effective_envelope.target_allocations.values()) must be
+    within 1.0 ± 0.01. Source = deployed instance.effective_config_json.
+    Direct insertion via make_rebalance_instance bypasses validate_spec_for_template,
+    simulating either a bypass attack or a validator regression.
+    """
     from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
 
-    _tmpl, instance, agent = await make_rebalance_instance(db)
+    _SOL = "So11111111111111111111111111111111111111112"
+    _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    bad_envelope = make_rebalance_envelope(
+        target_allocations={_SOL: 0.4, _USDC: 0.3},  # sum 0.7 ≠ 1.0; both still in universe
+    )
+    _tmpl, instance, agent = await make_rebalance_instance(
+        db, effective_config=bad_envelope,
+    )
     run = await make_completed_rebalance_run(
         db, agent=agent, instance=instance, with_evidence=True,
-        evidence_overrides={"target_allocations": {"X": 0.4, "Y": 0.3}},  # sum 0.7 ≠ 1.0
     )
     await db.commit()
 
@@ -186,16 +198,26 @@ async def test_target_allocation_sum_check_fails_when_sum_off(db):
 
 
 @pytest.mark.asyncio
-async def test_allowed_token_universe_check_fails_when_mint_outside_universe(db):
-    """target_allocations containing a mint not in allowed_token_universe → check fails."""
+async def test_allowed_token_universe_check_fails_when_deployed_target_outside_universe(db):
+    """Deployed envelope target contains a mint not in allowed_token_universe → check fails.
+
+    Source per spec §5.6 line 210 = deployed envelope (target_allocations.keys() and
+    allowed_token_universe both from instance.effective_config_json).
+    """
     from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
 
-    _tmpl, instance, agent = await make_rebalance_instance(db)
+    _SOL = "So11111111111111111111111111111111111111112"
+    _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    _OUTSIDE = "OutsideMint11111111111111111111111111111111"
+    bad_envelope = make_rebalance_envelope(
+        allowed_token_universe=[_SOL, _USDC],  # universe excludes OUTSIDE
+        target_allocations={_SOL: 0.4, _OUTSIDE: 0.6},  # OUTSIDE not in universe
+    )
+    _tmpl, instance, agent = await make_rebalance_instance(
+        db, effective_config=bad_envelope,
+    )
     run = await make_completed_rebalance_run(
         db, agent=agent, instance=instance, with_evidence=True,
-        evidence_overrides={
-            "target_allocations": {"OutsideMint11111111111111111111111111111111": 1.0},
-        },
     )
     await db.commit()
 
@@ -288,21 +310,26 @@ async def test_max_trade_value_check_fails_when_leg_exceeds_limit(db):
 
 
 @pytest.mark.asyncio
-async def test_max_position_weight_check_fails_when_weight_exceeds_limit(db):
-    """A target_allocations weight > max_position_weight → max_position_weight_check fails."""
+async def test_max_position_weight_check_fails_when_deployed_weight_exceeds_limit(db):
+    """Deployed target_allocations weight > max_position_weight → check fails.
+
+    Source per spec §5.6 line 214 = deployed envelope (both target_allocations
+    and max_position_weight from instance.effective_config_json).
+    """
     from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
 
     _SOL = "So11111111111111111111111111111111111111112"
     _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     _USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
-
-    _tmpl, instance, agent = await make_rebalance_instance(db)
+    bad_envelope = make_rebalance_envelope(
+        # max_position_weight default is 0.7; SOL=0.8 violates.
+        target_allocations={_SOL: 0.8, _USDC: 0.1, _USDT: 0.1},
+    )
+    _tmpl, instance, agent = await make_rebalance_instance(
+        db, effective_config=bad_envelope,
+    )
     run = await make_completed_rebalance_run(
         db, agent=agent, instance=instance, with_evidence=True,
-        evidence_overrides={
-            # max_position_weight in envelope is 0.7; put SOL at 0.8 to violate
-            "target_allocations": {_SOL: 0.8, _USDC: 0.1, _USDT: 0.1},
-        },
     )
     await db.commit()
 
@@ -313,50 +340,37 @@ async def test_max_position_weight_check_fails_when_weight_exceeds_limit(db):
 
 
 @pytest.mark.asyncio
-async def test_cat_uses_deployed_envelope_not_artifact_envelope_for_policy(db):
-    """Codex Round-2 trust-boundary lock: Cat reads policy from instance.effective_config_json.
+async def test_cat_ignores_artifact_target_when_deployed_target_is_valid(db):
+    """Codex Round-3 strict-spec lock: artifact's target_allocations is NOT the trust source.
 
-    The artifact's `effective_envelope` field is evidence/echo only — NOT the trust source
-    for policy predicates. Spec §5.5 line 191: "effective_envelope ... (read from
-    instance.effective_config_json)". Plan Task 20 line 4105: "Each predicate reads the
-    parsed canonical-JSON payload AND the deployed envelope (json.loads(instance.effective_config_json))".
-
-    This test pins that contract: if the artifact reports a LOOSER envelope than the deployed
-    instance, the Cat must still fail because the deployed envelope is the authority.
+    Per spec §5.6 line 209 ("sum(effective_envelope.target_allocations.values())") and
+    spec §5.5 line 192 ("payload.target_allocations is echo of envelope; convenience key"),
+    the deployed envelope's target_allocations is authoritative. The artifact's top-level
+    target_allocations is for UI/search consumption only — never the Cat's trust source.
 
     Scenario:
-      - Deployed instance: max_position_weight=0.5 (STRICT).
-      - Artifact's effective_envelope: max_position_weight=1.0 (LOOSE).
-      - Artifact's target_allocations: SOL=0.7, USDC=0.3 (sums to 1.0; SOL weight 0.7 > 0.5).
-      - Expected: max_position_weight_check FAILS because Cat reads deployed=0.5, sees 0.7 > 0.5.
-
-    Before the fix (Cat reads artifact envelope): Cat reads loose=1.0, sees 0.7 ≤ 1.0, PASSES.
-    After the fix (Cat reads instance config): Cat reads strict=0.5, sees 0.7 > 0.5, FAILS.
+      - Deployed instance: VALID canonical envelope (sum=1.0, all weights ≤ 0.7, all in universe).
+      - Artifact's target_allocations: INVALID (sum=0.7 + overweight + outside universe).
+      - Expected: target/allocation checks PASS because Cat reads deployed envelope target,
+        which is valid. The artifact's invalid target is ignored.
     """
     from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
 
     _SOL = "So11111111111111111111111111111111111111112"
     _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-    _USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
 
-    # Deployed envelope: STRICT max_position_weight=0.5.
-    strict_envelope = make_rebalance_envelope(max_position_weight=0.5)
+    # Deployed: valid canonical envelope.
     _tmpl, instance, agent = await make_rebalance_instance(
-        db, effective_config=strict_envelope,
+        db, effective_config=make_rebalance_envelope(),
     )
 
-    # Artifact's effective_envelope: LOOSE max_position_weight=1.0.
-    loose_envelope = make_rebalance_envelope(max_position_weight=1.0)
-
-    # target_allocations: SOL weight 0.7 violates strict (>0.5) but passes loose (≤1.0).
-    # Sums to 1.0, all in allowed_token_universe, so other predicates pass.
-    violating_targets = {_SOL: 0.7, _USDC: 0.3}
-
+    # Artifact: invalid target_allocations (sum 0.7, would have failed multiple checks
+    # if the Cat trusted the artifact). drift=0 < threshold=50 → no legs for consistency.
     run = await make_completed_rebalance_run(
         db, agent=agent, instance=instance, with_evidence=True,
         evidence_overrides={
-            "effective_envelope": loose_envelope,
-            "target_allocations": violating_targets,
+            "target_allocations": {_SOL: 0.4, _USDC: 0.3},  # bad sum, missing USDT, etc.
+            "legs": [],
         },
     )
     await db.commit()
@@ -364,11 +378,61 @@ async def test_cat_uses_deployed_envelope_not_artifact_envelope_for_policy(db):
     response = await compute_rebalance_policy_cat(db, run.run_id)
     failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
 
-    assert "max_position_weight_check" in failing_ids, (
-        "Cat must read max_position_weight from deployed instance.effective_config_json (=0.5), "
-        "not from the artifact's effective_envelope (=1.0). Target weight 0.7 violates the "
-        "deployed bound but would pass the looser artifact bound. "
-        f"Got failing checks: {failing_ids}"
+    # Cat ignores artifact target → these target/allocation checks all PASS.
+    assert "target_allocation_sum_check" not in failing_ids, (
+        "Cat read target_allocations from artifact (sum 0.7) instead of deployed envelope (sum 1.0). "
+        f"Got failing: {failing_ids}"
+    )
+    assert "allowed_token_universe_check" not in failing_ids, (
+        "Cat read target_allocations from artifact instead of deployed envelope. "
+        f"Got failing: {failing_ids}"
+    )
+    assert "max_position_weight_check" not in failing_ids, (
+        "Cat read target_allocations from artifact instead of deployed envelope. "
+        f"Got failing: {failing_ids}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cat_catches_deployed_bad_target_even_when_artifact_target_is_valid(db):
+    """Inverse strict-spec lock: deployed-bad target → Cat fails despite valid artifact target.
+
+    Scenario:
+      - Deployed instance: INVALID envelope (target sum=0.7, bypassing validate_spec_for_template).
+      - Artifact's target_allocations: VALID (sum=1.0).
+      - Expected: target_allocation_sum_check FAILS because Cat reads deployed envelope.
+        The valid artifact target does not "rescue" the bad deployed envelope.
+    """
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _SOL = "So11111111111111111111111111111111111111112"
+    _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    _USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+
+    # Deployed: bad envelope (sum 0.7).
+    bad_envelope = make_rebalance_envelope(
+        target_allocations={_SOL: 0.4, _USDC: 0.3},  # sum 0.7
+    )
+    _tmpl, instance, agent = await make_rebalance_instance(
+        db, effective_config=bad_envelope,
+    )
+
+    # Artifact: valid target (sum=1.0).
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "target_allocations": {_SOL: 0.5, _USDC: 0.3, _USDT: 0.2},  # sum=1.0
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+
+    # Cat reads bad deployed (sum=0.7) → check fails despite valid artifact target.
+    assert "target_allocation_sum_check" in failing_ids, (
+        "Cat must catch deployed envelope's bad sum (0.7) regardless of artifact's valid claim. "
+        f"Got failing: {failing_ids}"
     )
 
 

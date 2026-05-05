@@ -116,15 +116,20 @@ async def _run_checks(db, run, instance, template, artifact) -> dict[str, bool]:
     envelope = json.loads(instance.effective_config_json)
 
     # target_allocation_sum_check
-    target = payload.get("target_allocations", {})
+    # Spec §5.6 line 209: sum(effective_envelope.target_allocations.values())
+    # within 1.0 ± 0.01. Per spec §5.5 line 192, payload["target_allocations"]
+    # is a "convenience echo" — NOT the trust source. The deployed envelope
+    # (json.loads(instance.effective_config_json)) is authoritative.
+    target = envelope.get("target_allocations", {})
     total = sum(float(v) for v in target.values())
     results["target_allocation_sum_check"] = abs(total - 1.0) <= 0.01
 
-    # allowed_token_universe_check
+    # allowed_token_universe_check (spec §5.6 line 210)
     universe = set(envelope.get("allowed_token_universe", []))
     results["allowed_token_universe_check"] = set(target.keys()).issubset(universe)
 
-    # price_data_present_check
+    # price_data_present_check (spec §5.6 line 211): every mint in deployed
+    # target_allocations OR artifact start_portfolio must have a non-null price.
     prices = payload.get("prices_used", {})
     needed = set(target.keys()) | set(payload.get("start_portfolio", {}).keys())
     results["price_data_present_check"] = all(prices.get(m) is not None for m in needed)
@@ -143,7 +148,9 @@ async def _run_checks(db, run, instance, template, artifact) -> dict[str, bool]:
         leg.get("size_base_units", 0) <= mtv for leg in payload.get("legs", [])
     )
 
-    # max_position_weight_check
+    # max_position_weight_check (spec §5.6 line 214): every entry in
+    # effective_envelope.target_allocations is in (0.0, max_position_weight].
+    # Both target_allocations and max_position_weight come from deployed envelope.
     mpw = envelope.get("max_position_weight", 0.0)
     results["max_position_weight_check"] = all(
         0.0 < float(w) <= mpw for w in target.values()
