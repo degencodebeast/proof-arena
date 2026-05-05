@@ -116,9 +116,20 @@ def make_rebalance_evidence_payload(
 ) -> dict:
     """Build the canonical-shape rebalance_evidence_v1 payload per spec §5.5.
 
+    HAPPY-PATH PRICED FIXTURE for Cat tests. This helper supplies non-null
+    1_000_000 base-unit prices when ``prices_used`` is omitted so Cat tests can
+    exercise the success branch of ``price_data_present_check`` without wiring
+    up a real observe pipeline. Production ``RebalanceExecutionChallenge.
+    emit_run_evidence`` does NOT use this fallback — it emits explicit ``None``
+    for every missing price per spec §5.5/§5.6, which is what the Cat-layer
+    ``price_data_present_check`` (Task 20) fails on.
+
+    Callers needing a missing-price fixture should pass ``prices_used`` with
+    explicit ``None`` entries.
+
     V0-locked defaults:
     - Every leg status="planned", slippage_bps_realized=0
-    - Prices = synthetic 1_000_000 base-units when omitted
+    - Prices = happy-path 1_000_000 base-units when omitted (test-only fixture)
     - end_portfolio == start_portfolio (dry-run, no execution)
     """
     if prices_used is None:

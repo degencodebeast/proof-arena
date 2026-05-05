@@ -182,14 +182,18 @@ class RebalanceExecutionChallenge:
                 prices_used = dict(snap.get("extra", {}).get("prices_used", {}) or {})
                 break
 
+        # Populate start_portfolio with allowed_token_universe zero-balances FIRST,
+        # so the subsequent mints_in_scope computation captures all final-portfolio
+        # mints (including allowed-but-not-targeted universe entries).
+        for mint in self.allowed_token_universe:
+            start_portfolio.setdefault(mint, 0)
+
         # Spec §5.5/§5.6: prices_used must have an entry for every mint in
-        # target_allocations or start_portfolio. Missing prices appear as None
+        # target_allocations or final start_portfolio. Missing prices appear as None
         # (the null is what triggers the Cat-layer price_data_present_check to fail).
         mints_in_scope = set(self.target_allocations.keys()) | set(start_portfolio.keys())
         for mint in mints_in_scope:
             prices_used.setdefault(mint, None)
-        for mint in self.allowed_token_universe:
-            start_portfolio.setdefault(mint, 0)
 
         plan = self._compute_v0_plan(start_portfolio=start_portfolio, prices_used=prices_used)
 
