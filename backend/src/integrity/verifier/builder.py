@@ -5,6 +5,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import AgentTemplate, RunEvent, VerificationArtifact
+from src.integrity.cats.rebalance_policy import (
+    UnsupportedTemplateError,
+    compute_rebalance_policy_cat,
+)
 from src.integrity.cats.wallet_safety import (
     compute_wallet_safety_cat,
     resolve_run_and_instance,
@@ -33,6 +37,15 @@ async def build_verifier_run_response(
     run, agent, instance = await resolve_run_and_instance(db, run_id)
     cat_response = await compute_wallet_safety_cat(db, run_id)
     template = await db.get(AgentTemplate, instance.template_id)
+
+    # Compose the rebalance Cat ONLY for rebalance_executor_v1 runs.
+    rebalance_cat = None
+    if template is not None and template.template_key == "rebalance_executor_v1":
+        try:
+            rebalance_cat = await compute_rebalance_policy_cat(db, run_id)
+        except UnsupportedTemplateError:
+            # Defensive: if resolver disagreed with template_key, leave null.
+            rebalance_cat = None
 
     artifact_rows = (
         await db.execute(
@@ -110,5 +123,5 @@ async def build_verifier_run_response(
             last_event_type=last_event_type,
             verification_artifacts=artifact_entries,
         ),
-        cats=VerifierCatsBlock(wallet_safety=cat_response),
+        cats=VerifierCatsBlock(wallet_safety=cat_response, rebalance_policy=rebalance_cat),
     )
