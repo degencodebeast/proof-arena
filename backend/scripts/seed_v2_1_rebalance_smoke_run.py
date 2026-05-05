@@ -69,7 +69,7 @@ def main():
     """Entrypoint for `python -m scripts.seed_v2_1_rebalance_smoke_run`.
 
     Uses a real DB session via src.db.engine. Operator must have DATABASE_URL
-    configured in env (per existing v2_demo.md docker-compose conventions).
+    configured in env, e.g. via the backend docker-compose environment.
     """
     from src.db.engine import async_session_factory
 
