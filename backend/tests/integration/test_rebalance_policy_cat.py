@@ -252,25 +252,36 @@ async def test_price_data_present_check_fails_when_price_is_null(db):
 
 
 @pytest.mark.asyncio
-async def test_rebalance_threshold_check_fails_when_threshold_out_of_range(db):
-    """rebalance_threshold_bps=0 (out of [1,5000]) → rebalance_threshold_check fails."""
+async def test_rebalance_threshold_check_fails_when_deployed_threshold_out_of_range(db):
+    """Deployed rebalance_threshold_bps=0 (out of [1,5000]) → check fails on out-of-range clause.
+
+    Source per spec §5.6 line 212 = deployed envelope's `rebalance_threshold_bps`.
+    Cat reads from `json.loads(instance.effective_config_json)`, not the artifact's
+    `effective_envelope` field (which is evidence/echo, not the policy authority).
+
+    Failure isolation: this test ensures the predicate fails on the OUT-OF-RANGE
+    clause specifically, not on the drift/legs consistency clause. With deployed
+    `th=0` and a non-empty default legs list (drift_pre=0, has_legs=True):
+      - `th_in_range = (1 ≤ 0 ≤ 5000)` = False  ← THE failure cause this test pins
+      - `drift_legs_consistent = (0 ≥ 0 and True) or (0 < 0 and not True)` = True
+      - Predicate = `False AND True` = False → check fails ONLY because of range.
+
+    Pre-Round-4: this test mutated artifact's effective_envelope, which the Cat
+    correctly ignores per Round-2/3 fixes — so it passed incidentally via the
+    drift/legs path. Now it tests the actual range clause in isolation.
+    """
     from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
 
-    bad_envelope = make_rebalance_envelope()
-    _tmpl, instance, agent = await make_rebalance_instance(db)
+    bad_envelope = make_rebalance_envelope(rebalance_threshold_bps=0)
+    _tmpl, instance, agent = await make_rebalance_instance(
+        db, effective_config=bad_envelope,
+    )
+    # No evidence_overrides: canonical helper emits default planned legs, so
+    # has_legs=True. Combined with drift_pre=0 and deployed th=0, the
+    # drift/legs consistency clause evaluates to True — isolating the failure
+    # to the th_in_range clause.
     run = await make_completed_rebalance_run(
         db, agent=agent, instance=instance, with_evidence=True,
-        evidence_overrides={
-            "effective_envelope": {
-                "allowed_token_universe": bad_envelope["allowed_token_universe"],
-                "target_allocations": bad_envelope["target_allocations"],
-                "rebalance_threshold_bps": 0,  # out of [1,5000]
-                "max_slippage_bps": bad_envelope["max_slippage_bps"],
-                "max_position_weight": bad_envelope["max_position_weight"],
-                "max_trade_value": bad_envelope["max_trade_value"],
-                "dry_run": True,
-            },
-        },
     )
     await db.commit()
 
