@@ -3,7 +3,11 @@ artifact so live curl smoke against /api/v1/cats/rebalance_policy/{run_id} and
 /api/v1/verifier/runs/{run_id} returns a populated payload.
 
 Spec §5.9 — DEMO SUPPORT, NOT CORE. Do not depend on this seed for any
-production trust path. Idempotent on re-invocation.
+production trust path. Each invocation creates a fresh
+(template, instance, agent, challenge, run, evidence_artifact) tuple — the
+seed is not idempotent. Operators should capture the printed run_id from
+each run and curl that specific id; re-running the script produces a new
+distinct run_id.
 
 HONESTY DISCLAIMER (V0 demo-vs-production gap):
 This seed builds the rebalance_evidence_v1 artifact via tests._rebalance_helpers

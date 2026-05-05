@@ -95,7 +95,7 @@ Four rules that define the product:
 
 ## Public Trust/Eval API (V2.1, shipped)
 
-Two read-only endpoints expose proof / evidence JSON for completed V2 hosted-instance runs. Both ship on `main` and are deterministic, no-LLM-in-trust-path, no-DB-writes, no-`rank_snapshots`-writes, with no on-chain anchoring claim.
+Three read-only endpoints expose proof / evidence JSON for completed V2 hosted-instance runs. All three ship on `main` and are deterministic, no-LLM-in-trust-path, no-DB-writes, no-`rank_snapshots`-writes, with no on-chain anchoring claim.
 
 | Endpoint | What it returns |
 |----------|----------------|
@@ -103,12 +103,12 @@ Two read-only endpoints expose proof / evidence JSON for completed V2 hosted-ins
 | `GET /api/v1/cats/rebalance_policy/{run_id}` | **Rebalance Policy Cat V0** — bounded pass/fail verdict over a completed `rebalance_executor_v1` run, with 10 deterministic check ids (`target_allocation_sum_check`, `allowed_token_universe_check`, `price_data_present_check`, `rebalance_threshold_check`, `max_trade_value_check`, `max_position_weight_check`, `max_slippage_check`, `dry_run_or_devnet_check`, `post_trade_allocation_drift_check`, `rebalance_evidence_present_check`). Off-scope (non-rebalance) templates → 422 `unsupported_template`. Same trust-label auth contract as Wallet Safety Cat. |
 | `GET /api/v1/verifier/runs/{run_id}` | **Public Verifier V0** — single JSON proof document containing run summary, lineage (instance / trust label / template), evidence (run log hash, verification-artifact metadata, RunEvent aggregate signals), and the verbatim embedded Cat verdicts (`cats.wallet_safety` always; `cats.rebalance_policy` populated for `rebalance_executor_v1` runs, `null` otherwise). The Verifier composes Cat modules — it does not duplicate verdict logic. |
 
-Auth on both endpoints is keyed on `AgentInstance.trust_label`, never on `Agent.subject_type`:
+Auth on all three endpoints is keyed on `AgentInstance.trust_label`, never on `Agent.subject_type`:
 - `benchmarked_canonical_template` → public read, no auth.
 - `benchmark_compatible_customized_instance` → owner-auth required (401 anonymous, 403 wrong owner, 200 correct owner).
 - `external_custom_runtime` → defensive 422 (reserved label).
 
-Test coverage on `main`: 29 Cat tests + 19 Verifier tests + 8 A-6 failure-taxonomy regression tests, plus grep audits locking no-LLM imports, no-DB writes, no-Cat-logic-duplication, no-`subject_type`-as-auth-key, locked `{"error": ...}` error bodies, and 13-sentinel + 13-literal-key private-field non-leakage. See [scripts/v2_demo.md](scripts/v2_demo.md) for the runbook.
+Test coverage on `main` includes the Wallet Safety Cat, Rebalance Policy Cat V0, Verifier V0, and A-6 failure-taxonomy regression suites, plus grep audits locking no-LLM imports, no-DB writes, no-Cat-logic-duplication, no-`subject_type`-as-auth-key, locked `{"error": ...}` error bodies, and private-field non-leakage on Cat + Verifier surfaces.
 
 ## V1 Benchmark: Swap Execution
 
