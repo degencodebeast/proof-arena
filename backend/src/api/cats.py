@@ -16,6 +16,10 @@ from src.integrity.cats.wallet_safety import (
     compute_wallet_safety_cat,
     resolve_run_and_instance,
 )
+from src.integrity.cats.rebalance_policy import (
+    UnsupportedTemplateError,
+    compute_rebalance_policy_cat,
+)
 
 router = APIRouter(prefix="/cats")
 _optional_bearer = HTTPBearer(auto_error=False)
@@ -40,6 +44,11 @@ def _map_domain_error(exc: Exception) -> JSONResponse:
         return JSONResponse(
             status_code=422,
             content={"error": "unsupported_trust_label", "trust_label": exc.trust_label},
+        )
+    if isinstance(exc, UnsupportedTemplateError):
+        return JSONResponse(
+            status_code=422,
+            content={"error": "unsupported_template", "template_key": exc.template_key},
         )
     raise exc
 
@@ -84,4 +93,44 @@ async def get_wallet_safety_cat(
     except Exception:
         # Spec §8: 5xx must never leak free-text. Locked body, no detail / no
         # stack trace. Internal exception text must NOT appear in the response.
+        return JSONResponse(status_code=500, content={"error": "internal_error"})
+
+
+@router.get("/rebalance_policy/{run_id}")
+async def get_rebalance_policy_cat(
+    run_id: int,
+    creds: HTTPAuthorizationCredentials | None = Depends(_optional_bearer),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read-only Rebalance Policy Cat verdict for a single completed run.
+
+    Auth contract — keyed by AgentInstance.trust_label, NOT Agent.subject_type:
+    - benchmarked_canonical_template → public, no auth.
+    - benchmark_compatible_customized_instance → owner-auth via get_current_user.
+    - external_custom_runtime → defensive 422 (caught by resolver).
+    """
+    try:
+        try:
+            run, agent, instance = await resolve_run_and_instance(db, run_id)
+        except (
+            RunNotFoundError, InstanceUnresolvableError, RunNotFinalError,
+            UnsupportedProviderTypeError, UnsupportedTrustLabelError,
+        ) as e:
+            return _map_domain_error(e)
+
+        if instance.trust_label == "benchmark_compatible_customized_instance":
+            user = await get_current_user(creds)
+            if user.privy_user_id != instance.instance_owner_ref:
+                return JSONResponse(
+                    status_code=403, content={"error": "not_instance_owner"},
+                )
+        # benchmarked_canonical_template → public; external_custom_runtime → already 422'd by resolver.
+
+        try:
+            return await compute_rebalance_policy_cat(db, run_id)
+        except UnsupportedTemplateError as e:
+            return _map_domain_error(e)
+    except HTTPException:
+        raise
+    except Exception:
         return JSONResponse(status_code=500, content={"error": "internal_error"})
