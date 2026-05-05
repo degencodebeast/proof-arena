@@ -313,6 +313,66 @@ async def test_max_position_weight_check_fails_when_weight_exceeds_limit(db):
 
 
 @pytest.mark.asyncio
+async def test_cat_uses_deployed_envelope_not_artifact_envelope_for_policy(db):
+    """Codex Round-2 trust-boundary lock: Cat reads policy from instance.effective_config_json.
+
+    The artifact's `effective_envelope` field is evidence/echo only — NOT the trust source
+    for policy predicates. Spec §5.5 line 191: "effective_envelope ... (read from
+    instance.effective_config_json)". Plan Task 20 line 4105: "Each predicate reads the
+    parsed canonical-JSON payload AND the deployed envelope (json.loads(instance.effective_config_json))".
+
+    This test pins that contract: if the artifact reports a LOOSER envelope than the deployed
+    instance, the Cat must still fail because the deployed envelope is the authority.
+
+    Scenario:
+      - Deployed instance: max_position_weight=0.5 (STRICT).
+      - Artifact's effective_envelope: max_position_weight=1.0 (LOOSE).
+      - Artifact's target_allocations: SOL=0.7, USDC=0.3 (sums to 1.0; SOL weight 0.7 > 0.5).
+      - Expected: max_position_weight_check FAILS because Cat reads deployed=0.5, sees 0.7 > 0.5.
+
+    Before the fix (Cat reads artifact envelope): Cat reads loose=1.0, sees 0.7 ≤ 1.0, PASSES.
+    After the fix (Cat reads instance config): Cat reads strict=0.5, sees 0.7 > 0.5, FAILS.
+    """
+    from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat
+
+    _SOL = "So11111111111111111111111111111111111111112"
+    _USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    _USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+
+    # Deployed envelope: STRICT max_position_weight=0.5.
+    strict_envelope = make_rebalance_envelope(max_position_weight=0.5)
+    _tmpl, instance, agent = await make_rebalance_instance(
+        db, effective_config=strict_envelope,
+    )
+
+    # Artifact's effective_envelope: LOOSE max_position_weight=1.0.
+    loose_envelope = make_rebalance_envelope(max_position_weight=1.0)
+
+    # target_allocations: SOL weight 0.7 violates strict (>0.5) but passes loose (≤1.0).
+    # Sums to 1.0, all in allowed_token_universe, so other predicates pass.
+    violating_targets = {_SOL: 0.7, _USDC: 0.3}
+
+    run = await make_completed_rebalance_run(
+        db, agent=agent, instance=instance, with_evidence=True,
+        evidence_overrides={
+            "effective_envelope": loose_envelope,
+            "target_allocations": violating_targets,
+        },
+    )
+    await db.commit()
+
+    response = await compute_rebalance_policy_cat(db, run.run_id)
+    failing_ids = {c.check_id for c in response.checks if c.result == "fail"}
+
+    assert "max_position_weight_check" in failing_ids, (
+        "Cat must read max_position_weight from deployed instance.effective_config_json (=0.5), "
+        "not from the artifact's effective_envelope (=1.0). Target weight 0.7 violates the "
+        "deployed bound but would pass the looser artifact bound. "
+        f"Got failing checks: {failing_ids}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_max_slippage_check_fails_when_leg_has_nonzero_realized_slippage(db):
     """A leg with slippage_bps_realized != 0 → max_slippage_check fails (V0 lock)."""
     from src.integrity.cats.rebalance_policy import compute_rebalance_policy_cat

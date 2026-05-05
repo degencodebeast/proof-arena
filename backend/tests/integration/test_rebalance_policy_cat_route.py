@@ -23,12 +23,27 @@ pytestmark = pytest.mark.integration
 # Locked effective_config envelope for rebalance_executor_v1 instances
 # ---------------------------------------------------------------------------
 
+# V0 rebalance envelope shape (7 fields per spec §5.1 / §5.2). Previously this
+# fixture used the swap-shaped envelope, which only worked because the Cat used
+# to read its envelope from the artifact's effective_envelope. After the Codex
+# Round-2 trust-source fix, the Cat reads json.loads(instance.effective_config_json)
+# directly, so the deployed envelope MUST be rebalance-shaped.
 _ENV = {
+    "allowed_token_universe": [
+        "So11111111111111111111111111111111111111112",
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    ],
+    "target_allocations": {
+        "So11111111111111111111111111111111111111112": 0.5,
+        "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": 0.3,
+        "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": 0.2,
+    },
+    "rebalance_threshold_bps": 50,
     "max_slippage_bps": 100,
-    "max_position_size": 10_000_000,
-    "allowed_token_universe": ["SOL", "USDC"],
-    "max_runtime_seconds": 300,
-    "max_iterations": 20,
+    "max_position_weight": 0.7,
+    "max_trade_value": 1_000_000_000,
+    "dry_run": True,
 }
 
 

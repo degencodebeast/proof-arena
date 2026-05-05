@@ -109,7 +109,11 @@ async def _run_checks(db, run, instance, template, artifact) -> dict[str, bool]:
         results["rebalance_evidence_present_check"] = False
         return results
     payload = json.loads(body)
-    envelope = payload.get("effective_envelope", {})
+    # Spec §5.5 line 191 + Plan Task 20 line 4105: the policy authority is the DEPLOYED
+    # instance envelope, not the artifact's self-reported effective_envelope. The
+    # artifact's effective_envelope is evidence/echo only; trusting it would let a run
+    # be evaluated against a relaxed envelope claimed by the run itself.
+    envelope = json.loads(instance.effective_config_json)
 
     # target_allocation_sum_check
     target = payload.get("target_allocations", {})
