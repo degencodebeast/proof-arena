@@ -27,9 +27,8 @@ The README must introduce Proof Arena as an independent product. It must not men
 
 ## Terms to Define
 
-The README must define each domain term when it first appears.
+The README must define each Proof Arena-specific or unclear domain term when it first appears. It must not explain common terms that the target reader already knows.
 
-- **Agent:** Software that selects actions and can call tools or services.
 - **Run:** One recorded execution of an agent.
 - **Hosted run:** A run executed by the Proof Arena runtime instead of an outside runtime.
 - **Policy:** Fixed rules that state what an agent may and may not do.
@@ -122,7 +121,8 @@ Link to deeper technical and product documents when they exist. The root README 
 Use ASD-STE100 Simplified Technical English.
 
 - Use short, direct sentences and common words.
-- Define a required technical term at first use.
+- Define a required project-specific or unclear technical term at first use.
+- Do not explain common terms such as agent, API, database, backend, or frontend.
 - Keep each paragraph at 240 characters or fewer where practical.
 - Do not use hype, vague claims, or unnecessary metaphors.
 - Do not use “trust path” without explaining the exact code boundary.
