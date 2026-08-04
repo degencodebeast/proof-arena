@@ -21,11 +21,9 @@ The first screen must explain the product without requiring knowledge of the cod
 
 Proof Arena verifies completed hosted Solana agent runs. It applies fixed checks and returns a read-only JSON proof document that another person or system can inspect.
 
-Proof Arena is not a sports-trading competition. It can verify different types of Solana agent runs. The current checks cover wallet safety and portfolio rebalancing.
+Proof Arena is not limited to one agent task. It can verify different types of Solana agent runs. The current checks cover wallet safety and portfolio rebalancing.
 
-Veridex and Proof Arena are separate products. Veridex builds, runs, and compares sports-trading agents. Proof Arena checks individual Solana agent runs and returns inspectable evidence.
-
-The README must not claim that Veridex uses Proof Arena unless a real code integration exists.
+The README must introduce Proof Arena as an independent product. It must not mention, compare, or claim an integration with a separate product.
 
 ## Terms to Define
 
