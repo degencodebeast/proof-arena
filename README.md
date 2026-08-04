@@ -26,7 +26,7 @@ The result is made for inspection. The verifier cannot change the run that it ch
 
 ## The problem
 
-An agent can report that it followed a policy. That report is not enough when the agent can also produce or change the result used to judge it.
+An agent can report that it followed a policy (a set of rules that says what it can and cannot do). That report is not enough when the agent can also produce or change the result used to judge it.
 
 A useful record must answer direct questions:
 
@@ -93,6 +93,7 @@ The Public Verifier returns one document with the run, its instance and template
 
 - **Run:** One recorded execution of an agent.
 - **Hosted run:** A run executed by the Proof Arena runtime.
+- **Policy:** A set of rules that says what an agent can and cannot do during a run.
 - **Policy envelope:** Stored limits for allowed tokens, slippage, position size, iteration count, and run time.
 - **Cat:** A named group of fixed checks for one risk area. Cat is short for Category.
 - **Evidence:** Saved records that support a result, such as hashes, events, transaction records, and verification files.
