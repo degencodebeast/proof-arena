@@ -4,7 +4,7 @@
 
 ### Verify a Solana agent run before you rely on it.
 
-Proof Arena verifies completed hosted Solana agent runs. It applies fixed checks and returns one read-only JSON proof document that another person or system can inspect.
+Proof Arena verifies completed hosted Solana agent runs. It applies fixed checks (named tests that return pass or fail) and returns one read-only JSON proof document that another person or system can inspect.
 
 **[Quick proof](#proof-that-it-works) · [How it works](#how-it-works) · [API routes](#api-routes) · [Run locally](#run-proof-arena-locally) · [Honest limits](#honest-limits)**
 
@@ -95,6 +95,7 @@ The Public Verifier returns one document with the run, its instance and template
 - **Hosted run:** A run executed by the Proof Arena runtime.
 - **Policy:** A set of rules that says what an agent can and cannot do during a run.
 - **Policy envelope:** Stored limits for allowed tokens, slippage, position size, iteration count, and run time.
+- **Check:** A named test of one rule. The rule is set in code, and the check returns pass or fail.
 - **Cat:** A named group of fixed checks for one risk area. Cat is short for Category.
 - **Evidence:** Saved records that support a result, such as hashes, events, transaction records, and verification files.
 - **Public Verifier:** The read-only API that combines run details, origin, evidence details, event totals, and Cat results.
