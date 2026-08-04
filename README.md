@@ -1,510 +1,499 @@
+<div align="center">
+
 # Proof Arena
 
-**Proof Arena is the verification and eval layer for onchain agents.**
+### Verify a Solana agent run before you rely on it.
 
-> It turns every completed agent run into deterministic Cat verdicts and a read-only proof JSON that judges, partners, and protocols can inspect to see what the agent actually did — before trusting it.
+Proof Arena verifies completed hosted Solana agent runs. It applies fixed checks and returns one read-only JSON proof document that another person or system can inspect.
 
-Deterministic policy-envelope evals, verifiable evidence trails, and partner-consumable trust feeds. Generic LLM observability platforms catch issues *after* they happen in production. Proof Arena proves what an onchain agent **can do**, **is allowed to do**, and **actually did** — *before* it touches production. *Today, hosted Solana agents on devnet, with one shipped Cat (Wallet Safety) and a clear path to more.*
+**[Quick proof](#proof-that-it-works) · [How it works](#how-it-works) · [API routes](#api-routes) · [Run locally](#run-proof-arena-locally) · [Honest limits](#honest-limits)**
 
-**Per-run verification and deterministic evals for onchain agents.**
+![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)
+![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![Solana devnet](https://img.shields.io/badge/Solana-devnet-14F195?logo=solana&logoColor=white)
 
-> **Quick demo (60 seconds):** from `agent-rank/backend/` run `uv run pytest tests/integration/test_wallet_safety_cat.py tests/integration/test_verifier_v0.py tests/test_task_a6_failure_taxonomy.py -v` → expect **56 passed**. For the live HTTP path, see [What Judges Can Try Today](#what-judges-can-try-today) below — three commands, no Solana RPC required for the demo.
+</div>
 
-Which onchain AI agent can you actually trust to handle real assets? Today, nobody can answer that credibly. Proof Arena can — one read-only proof document per completed agent run, with deterministic verdicts over the run's verifiable evidence trail (recorded actions, RunEvent stream, run-log hash, transaction signatures, verification artifacts) and zero marketing in the loop.
+Proof Arena records what an agent was allowed to do, what happened during one run, and which checks passed after the run ended.
 
-AI agents on Solana promise yields, trades, and risk management. Their proof today is a tweet, a backtest, or a self-reported dashboard. Proof Arena replaces all of that with a single primitive: a `GET` request that returns the run's lineage, evidence, and a named trust verdict — no LLM in the trust path, no DB writes from the verifier. If the JSON says `"result": "pass"`, you can show your work.
+The current product has two check groups: Wallet Safety and Rebalance Policy. A Public Verifier combines their results with run details, instance and template origin, evidence details, and event totals.
 
-The binding trust contract for every claim in this README is enumerated in [Trust Model & Non-Claims](#trust-model--non-claims) below.
-
----
-
-## The Problem
-
-AI agents on Solana claim to optimize DeFi yields, execute better trades, or manage risk. Their proof today?
-
-- Marketing claims ("40% APY!")
-- Gamed backtests
-- Self-reported Dune dashboards
-- "Trust me bro"
-
-There is no standardized way to ask **"should I let this agent touch my wallet?"** Developers can't prove their agent is safe. Protocols can't decide which agents to whitelist. Users are flying blind.
-
-The wedge isn't "which agent ranks #1 on a public leaderboard." It's "which agent's last N completed runs all produced inspectable, deterministic proof that nothing dangerous happened — no policy violation, no mainnet target, no envelope breach, no silent failure." That's a different question, and it's the one Proof Arena answers.
-
-## The Solution
-
-Proof Arena turns each completed agent run into a single **read-only JSON proof document**. Every hosted instance carries an explicit trust label and a wallet-policy envelope. Every completed run is checked deterministically by named **Cats** (short for **Categories** — each Cat is a bounded set of related deterministic checks covering one named trust dimension; today only **Wallet Safety** ships, with more Cats to follow), and the **Public Verifier** composes those Cat verdicts with run lineage, evidence hashes, and aggregate event signals into one inspectable proof endpoint.
-
-- **No LLM in the trust path.** Static-import grep tests lock this in.
-- **No DB writes from the verifier path.** Row-count delta tests lock this across all 7 mutable tables (including `rank_snapshots` for the lineage-not-inheritance discipline).
-- **Devnet only.** Three independent guard layers reject mainnet RPC URLs at wallet creation, runtime assertion, and enclave policy.
-
-The deterministic answer to "did this run stay inside its declared trust envelope?" is one `GET` request away.
-
-## How It Works
-
-**The trust loop:** *deploy → run → evaluate → prove.*
-
-```
-1. DEPLOY    A benchmark-linked template (e.g. swap_executor_v1) is deployed
-             as a hosted instance via the V2 hosted runtime. Instance carries
-             a trust_label + wallet-policy envelope.
-             (Lineage, not inherited reputation.)
-                 ↓
-2. RUN       The instance executes a completed run on Solana devnet through
-             the V2 hosted runtime path. Runs produce: a run_log_hash, a
-             RunEvent stream, VerificationArtifacts, and an explicit
-             completion_status that is separate from lifecycle status.
-                 ↓
-3. EVALUATE  Wallet Safety Cat reads the completed run and returns a
-             deterministic pass/fail verdict over a bounded set of
-             wallet-safety RunInvalidReason members, with static critique
-             copy and per-check IDs. No LLM. No new failure-taxonomy enum.
-                 ↓
-4. PROOF     Public Verifier composes the Cat verdict with run lineage,
-             evidence metadata, and aggregate event signals into a single
-             read-only JSON document a judge, partner, or Proof Card UI
-             fetches with one GET — no Cat-logic duplicated on the
-             consumer side.
-```
-
-V1's controlled challenge / run / settlement loop is the foundation underneath: it proved the deterministic primitives V2.1 now productizes as a trust surface.
-
-## What Makes This Different
-
-The closest competitors by **what we're actually shipping** (per-run trust evidence for onchain agents) are evaluation/observability and trust-API products, not public-competition products:
-
-- **Respan AI** (formerly Keywords AI; YC W24, $5M raise, ~10 ppl) — generic LLM observability + evals + gateway. Closest by category surface.
-- **Helixa** — agent trust API; identity/reputation signals + natural-language trust assessment.
-- **Recall** — closest direct narrative competitor ("AI agents compete in trading challenges and earn reputation"). Public competition-led, not eval-led.
-- **AgentFolio** — Solana identity / trust score (live on mainnet). Answers "who is this agent?", not "did this run pass trust checks?"
-
-| | **Proof Arena** | Respan AI | Helixa | Recall | AgentFolio |
-|---|---|---|---|---|---|
-| **Category** | Per-run trust evidence for onchain agents | LLM observability + evals + gateway | Agent trust API | Public AI competition / skill market | Solana agent identity registry |
-| **Temporal posture** | **Pre-trust** — prove what's safe before trust is granted | **Post-deployment** — find what broke after launch | Continuous trust signal from identity/reputation | Public competition outcome | Identity at registration |
-| **Trust base** | Deterministic checks (Hamel-style); LLM only as explanation, never as verdict | LLM judges + code checks + human review, **equal-weight evaluators** | Reputation/identity signals + LLM summarization | Competition outcome + staking | Social verification + on-chain reviews |
-| **Evidence artifact** | One `GET /api/v1/verifier/runs/{run_id}` returns lineage + evidence + Cat verdict — single inspectable JSON | Spans in their backend | Trust score + confidence + recommended risk limits | Leaderboard rank + token mechanics | Trust score (0–100) + W3C VC export |
-| **Domain** | **Solana-native, onchain agents, devnet-only V2** | Chain-agnostic | Chain-agnostic | Broad AI skills, multi-chain | Solana identity registration |
-| **Core question** | "Did this run pass its named trust checks?" | "What broke in production?" | "Should I trust this agent based on identity/reputation signals?" | "Which agent wins the public arena?" | "Who is this agent?" |
-
-The clean positioning lines:
-
-- **Respan AI** watches AI behavior *after* deployment with LLM judges as equal-weight evaluators. **Proof Arena** puts deterministic checks at the trust base *before* trust is granted, and the evidence is onchain, Solana-native, and per-run inspectable.
-- **Helixa** answers trust from identity / reputation / natural-language signals. **Proof Arena** answers trust from deterministic per-run evidence.
-- **Recall** tells you who *wins the public arena*. **Proof Arena** tells you whether *this specific run* was trustworthy — confidential strategy, public proof.
-- **AgentFolio** tells you *who an agent is*. **Proof Arena** tells you whether *a specific run can be trusted*.
-
-Respan AI is closest by category surface but distinct in **temporal posture** (pre-trust vs post-deployment), **trust base** (deterministic checks vs LLM judges as equal-weight evaluators), and **domain** (Solana onchain vs chain-agnostic). For onchain agents that asymmetry is load-bearing — **an LLM-judge-friendly trust base isn't a tradeoff, it's a structural contradiction.** Recall and AgentFolio overlap on narrative but solve different questions ("who wins?" / "who is?"). Theoriq, DGrid, ERC-8004 ecosystem, and the broader trust-registry space are export paths or integration partners, not direct competitors.
-
-> **Not just ranking agents. Deciding whether a completed onchain agent run is trustable.**
+The result is made for inspection. The verifier cannot change the run that it checks, and it lists every public response field by hand.
 
 ---
 
-## What Judges Can Try Today
+## The problem
 
-Two HTTP endpoints are shipped on `main`. Both return read-only JSON. No Solana RPC required for the demo path; no LLM in the trust path.
+An agent can report that it followed a policy. That report is not enough when the agent can also produce or change the result used to judge it.
+
+A useful record must answer direct questions:
+
+- Which policy and template applied to this run?
+- Which actions were proposed and accepted?
+- Did the run target Solana devnet or mainnet?
+- Did wallet or authorization checks fail?
+- Does the saved evidence match its recorded hash?
+- Can another system inspect the result without private data?
+
+Proof Arena gives one answer per completed run. It uses fixed code for the result and saved evidence for support.
+
+## Who Proof Arena is for
+
+| Reader | What Proof Arena provides |
+| --- | --- |
+| Agent developers | A repeatable way to test wallet, policy, and evidence behavior for each completed run. |
+| Protocols and wallets | A read-only result that can support an integration or allowlist decision. |
+| Product teams | A stable API for proof cards, reports, and repeated-run summaries. |
+| Reviewers | Test commands, fixed check IDs, evidence hashes, and clear product limits. |
+
+Proof Arena does not require a public competition or leaderboard to verify one run.
+
+## What you can do
+
+- **Deploy a hosted instance.** Start from a versioned template and save the instance configuration, template origin, trust label, and policy envelope.
+- **Run under fixed limits.** The runner checks proposed actions before execution and records run events and evidence.
+- **Check the completed run.** Wallet Safety and Rebalance Policy return named pass or fail results.
+- **Fetch one proof document.** The Public Verifier returns the run, its origin, evidence details, event totals, and Cat results.
+- **Re-run the same checks.** The same stored input and code version produce the same result.
+
+## How it works
+
+```mermaid
+flowchart LR
+  T[Versioned template] --> D[Hosted instance]
+  D --> P[Policy envelope]
+  P --> R[Completed run]
+  R --> E[Run events and evidence]
+  E --> W[Wallet Safety Cat]
+  E --> B[Rebalance Policy Cat]
+  W --> V[Public Verifier]
+  B --> V
+  V --> J[Read-only JSON proof]
+```
+
+### 1. Deploy
+
+A deployment stores the template and version used by the instance. It also stores a trust label and the policy limits that apply to the hosted run.
+
+### 2. Run
+
+The runner observes state, requests an action, checks the action, and executes it only when the action is valid. It records each stage as a run event.
+
+### 3. Check
+
+After the run ends, each supported Cat applies its own fixed rules. A Cat cannot write to the run or change the saved evidence.
+
+### 4. Prove
+
+The Public Verifier returns one document with the run, its instance and template origin, evidence details, event totals, and Cat results.
+
+## Proof Arena terms
+
+- **Run:** One recorded execution of an agent.
+- **Hosted run:** A run executed by the Proof Arena runtime.
+- **Policy envelope:** Stored limits for allowed tokens, slippage, position size, iteration count, and run time.
+- **Cat:** A named group of fixed checks for one risk area. Cat is short for Category.
+- **Evidence:** Saved records that support a result, such as hashes, events, transaction records, and verification files.
+- **Public Verifier:** The read-only API that combines run details, origin, evidence details, event totals, and Cat results.
+- **Deterministic:** The same stored input and code version produce the same result.
+- **Trust label:** A stored label that controls who may read a proof document.
+- **Devnet:** Solana's test network. It does not use real Solana mainnet assets.
+
+## What works now
+
+### Policy and action checks
+
+The active hosted path is devnet-only. The policy engine rejects a non-devnet chain before it builds a wallet policy.
+
+The wallet policy denies actions unless a rule allows them. It stores the token, slippage, position, iteration, and run-time limits for the instance.
+
+The runner checks every proposed action before execution. An invalid action is recorded but not executed.
+
+### Wallet Safety Cat
+
+Wallet Safety checks a completed hosted run. It has ten stable check IDs:
+
+1. `envelope_slippage_check`
+2. `envelope_token_universe_check`
+3. `envelope_position_size_check`
+4. `envelope_runtime_seconds_check`
+5. `envelope_iterations_check`
+6. `mainnet_guard_check`
+7. `wallet_policy_check`
+8. `authorization_signature_check`
+9. `hosted_wallet_available_check`
+10. `invalid_action_attempts_check`
+
+Wallet Safety does not recalculate all ten rules from raw events. It reads the saved run failure reason and maps one of five wallet failures to the related failed check.
+
+| Saved failure reason | Failed check |
+| --- | --- |
+| `mainnet_guard_triggered` | `mainnet_guard_check` |
+| `wallet_policy_rejected` | `wallet_policy_check` |
+| `authorization_signature_rejected` | `authorization_signature_check` |
+| `hosted_wallet_unavailable` | `hosted_wallet_available_check` |
+| `invalid_action_attempts_exceeded` | `invalid_action_attempts_check` |
+
+If the run failed for another reason, Wallet Safety reports that the failure is outside its scope. Another Cat can handle that reason.
+
+### Rebalance Policy Cat
+
+Rebalance Policy supports completed `rebalance_executor_v1` runs. It recalculates ten rules from the deployed configuration and a content-hashed `rebalance_evidence_v1` file.
+
+| Check | What it verifies |
+| --- | --- |
+| `target_allocation_sum_check` | Target weights total 1.0 within the allowed tolerance. |
+| `allowed_token_universe_check` | Every target token is in the allowed token list. |
+| `price_data_present_check` | Every portfolio token has saved price data. |
+| `rebalance_threshold_check` | The threshold and planned rebalance agree with the recorded drift. |
+| `max_trade_value_check` | No planned trade exceeds the value limit. |
+| `max_position_weight_check` | No target position exceeds its weight limit. |
+| `max_slippage_check` | Slippage settings and dry-run results stay inside their limits. |
+| `dry_run_or_devnet_check` | The V0 run stayed in its dry-run and hosted-run limits. |
+| `post_trade_allocation_drift_check` | A V0 dry run did not claim a changed final allocation. |
+| `rebalance_evidence_present_check` | The required evidence exists and its content hash matches. |
+
+The Cat returns all ten check results. Its first failed check supplies the fixed explanation.
+
+### Public Verifier
+
+The Public Verifier always includes Wallet Safety. It also includes Rebalance Policy for a supported rebalance run.
+
+It returns four main blocks:
+
+- `run`: public run fields and version fields;
+- `lineage`: the instance and template origin;
+- `evidence`: the run-log hash, event total, final event details, and verification-file metadata;
+- `cats`: the Wallet Safety result and the optional Rebalance Policy result.
+
+The verifier lists each public field in a hand-written Pydantic schema. It does not convert database rows directly into public responses.
+
+### Product services
+
+- FastAPI provides template, instance, run, Cat, verifier, challenge, and leaderboard routes.
+- PostgreSQL stores templates, instances, runs, events, and verification files.
+- Docker Compose starts PostgreSQL, the backend, and the Next.js interface.
+- The Next.js interface includes template, deployment, instance, challenge, and leaderboard pages.
+- The Rust Anchor program remains V1 foundation code. It is not the active proof-storage path.
+
+## Example proof document
+
+This shortened example shows the response shape. Private configuration, wallet references, event payloads, and raw verification-file locations are not public fields.
+
+```json
+{
+  "verifier_version": "v0",
+  "run": {
+    "run_id": 42,
+    "status": "completed",
+    "completion_status": "complete",
+    "provider_type": "hosted_instance",
+    "run_log_hash": "3c91..."
+  },
+  "lineage": {
+    "instance_id": 9,
+    "trust_label": "benchmarked_canonical_template",
+    "template": {
+      "template_key": "swap_executor_v1",
+      "template_version": "1.0.0",
+      "template_version_at_deploy": "1.0.0"
+    }
+  },
+  "evidence": {
+    "run_log_hash": "3c91...",
+    "run_event_count": 12,
+    "last_event_sequence_no": 12,
+    "last_event_type": "finalize",
+    "verification_artifacts": []
+  },
+  "cats": {
+    "wallet_safety": {
+      "result": "pass",
+      "reason": null,
+      "checks": []
+    },
+    "rebalance_policy": null
+  }
+}
+```
+
+`lineage` is the API field for the instance and template origin. `rebalance_policy` is `null` when the run does not use the supported rebalance template.
+
+## How Proof Arena is different
+
+Proof Arena checks one completed Solana run. It is not a general model dashboard, an identity registry, or a competition requirement.
+
+| Product type | Main question | Difference from Proof Arena |
+| --- | --- | --- |
+| Model monitoring | What happened during model calls? | Proof Arena checks a completed Solana run against fixed policy and evidence rules. |
+| Agent identity or reputation | Who is this agent? | Proof Arena checks what happened in one recorded run. |
+| Agent competition | Which agent performed best? | Proof Arena can verify a run without a public competition or leaderboard. |
+
+[Respan](https://www.respan.ai/docs/documentation/overview) documents model tracing, evaluations, prompt management, and model routing.
+
+[Recall](https://docs.recall.network/reference/competitions) documents agent competitions, paper trading, and leaderboards.
+
+These products can be complementary. Proof Arena's current boundary is a fixed result over one completed hosted Solana run.
+
+## Proof that it works
+
+The fastest proof path runs without Docker, Solana RPC, Privy, AgentOS, or a model provider.
+
+From `backend/`:
 
 ```bash
-# Wallet Safety Cat — bounded pass/fail trust verdict over a completed hosted-instance run.
-GET /api/v1/cats/wallet_safety/{run_id}
+uv sync
 
-# Public Verifier V0 — single proof document with run summary, lineage, evidence, and the verbatim Cat verdict.
-GET /api/v1/verifier/runs/{run_id}
+# Wallet Safety, Public Verifier, and failure-reason contract
+uv run pytest \
+  tests/integration/test_wallet_safety_cat.py \
+  tests/integration/test_verifier_v0.py \
+  tests/test_task_a6_failure_taxonomy.py \
+  -q
+# 56 passed
+
+# Rebalance Policy and verifier composition
+uv run pytest \
+  tests/integration/test_rebalance_policy_cat.py \
+  tests/integration/test_rebalance_policy_cat_route.py \
+  tests/integration/test_verifier_with_rebalance_cat.py \
+  tests/test_rebalance_cat_no_llm_imports.py \
+  -q
+# 29 passed
 ```
 
-Three ways to exercise them:
+| Claim | Proof |
+| --- | --- |
+| Wallet failure mapping and ten check IDs | `backend/tests/integration/test_wallet_safety_cat.py` |
+| Read-only verifier and private-field absence | `backend/tests/integration/test_verifier_v0.py` |
+| Fixed failure-reason set | `backend/tests/test_task_a6_failure_taxonomy.py` |
+| Ten Rebalance Policy checks | `backend/tests/integration/test_rebalance_policy_cat.py` |
+| Rebalance route and authorization behavior | `backend/tests/integration/test_rebalance_policy_cat_route.py` |
+| Rebalance result in the Public Verifier | `backend/tests/integration/test_verifier_with_rebalance_cat.py` |
+| No model-library imports in the Rebalance Cat path | `backend/tests/test_rebalance_cat_no_llm_imports.py` |
 
-1. **Pytest path (no Docker).** From `backend/`:
-   ```bash
-   uv run pytest tests/integration/test_wallet_safety_cat.py tests/integration/test_verifier_v0.py tests/test_task_a6_failure_taxonomy.py -v
-   ```
-   Expected: **56 passed** (29 Cat + 19 Verifier + 8 failure-taxonomy regression). Uses in-memory SQLite — no infra needed.
-
-2. **Live Docker/Postgres smoke.** Start the local stack, seed one deterministic completed run, hit both endpoints with `curl`. See [Demo / Smoke Commands](#demo--smoke-commands) below for copy-pasteable commands.
-
-3. **Read the verifier output.** A single GET against `/api/v1/verifier/runs/{run_id}` returns the run summary, lineage (template + trust label), evidence (run log hash + verification-artifact metadata + RunEvent aggregate signals), and the embedded Wallet Safety Cat verdict — all in one JSON document a judge or partner can inspect without reimplementing any internal logic.
-
----
-
-## Shipped Artifacts (V2.1.0 Trust/Eval Core)
-
-Three read-only endpoints expose proof / evidence JSON for completed V2 hosted-instance runs. All three ship on `main` and are deterministic, no-LLM-in-trust-path, no-DB-writes, no-`rank_snapshots`-writes, with no on-chain anchoring claim.
-
-
-| Artifact | Endpoint | Status | Test coverage |
-|----------|---------|--------|---------------|
-| **Wallet Safety Cat** — bounded pass/fail trust verdict for a completed hosted-instance run, with a named `RunInvalidReason`, static critique copy, evidence hash, and off-scope visibility fields. | `GET /api/v1/cats/wallet_safety/{run_id}` | Merged to `main` (PR #1) | 29 acceptance tests + A-6 failure-taxonomy regression |
-| **Public Verifier V0** — single read-only proof document over a completed hosted-instance run. **Composes** the Cat (`compute_wallet_safety_cat` reused verbatim, no Cat-verdict logic duplicated). | `GET /api/v1/verifier/runs/{run_id}` | Merged to `main` (PR #2) | 19 acceptance tests; private-field non-leakage locked via 13 sentinel-value + 13 literal-key absence assertions |
-| **V2.1 smoke seed** — deterministic Postgres seeder for a completed hosted-instance run so the live curl demo returns 200s without invoking Solana RPC, Privy, AgentOS, wallet creation, or any LLM. | `docker compose exec backend uv run python -m scripts.seed_v2_1_smoke_run` | On branch `chore/v2-1-smoke-seed` (open PR) | 1 composition test |
-| `GET /api/v1/cats/wallet_safety/{run_id}` | **Wallet Safety Cat** — bounded pass/fail verdict over a completed hosted-instance run, with named `RunInvalidReason`, static critique copy, evidence hash, and off-scope visibility fields. |
-| `GET /api/v1/cats/rebalance_policy/{run_id}` | **Rebalance Policy Cat V0** — bounded pass/fail verdict over a completed `rebalance_executor_v1` run, with 10 deterministic check ids (`target_allocation_sum_check`, `allowed_token_universe_check`, `price_data_present_check`, `rebalance_threshold_check`, `max_trade_value_check`, `max_position_weight_check`, `max_slippage_check`, `dry_run_or_devnet_check`, `post_trade_allocation_drift_check`, `rebalance_evidence_present_check`). Off-scope (non-rebalance) templates → 422 `unsupported_template`. Same trust-label auth contract as Wallet Safety Cat. |
-| `GET /api/v1/verifier/runs/{run_id}` | **Public Verifier V0** — single JSON proof document containing run summary, lineage (instance / trust label / template), evidence (run log hash, verification-artifact metadata, RunEvent aggregate signals), and the verbatim embedded Cat verdicts (`cats.wallet_safety` always; `cats.rebalance_policy` populated for `rebalance_executor_v1` runs, `null` otherwise). The Verifier composes Cat modules — it does not duplicate verdict logic. |
-
-Auth on all three endpoints  is keyed on `AgentInstance.trust_label`, **never** on `Agent.subject_type`:
-
-- `benchmarked_canonical_template` → public read, no auth.
-- `benchmark_compatible_customized_instance` → owner-auth required (401 anonymous, 403 wrong owner, 200 correct owner).
-- `external_custom_runtime` → defensive 422 (reserved label; no V2 path produces it).
-
----
-
-## Demo / Smoke Commands
-
-```bash
-# Test-mode verification (no Docker, in-memory SQLite)
-cd backend
-uv run pytest tests/integration/test_wallet_safety_cat.py -v        # 29 passed
-uv run pytest tests/integration/test_verifier_v0.py -v              # 19 passed
-uv run pytest tests/test_task_a6_failure_taxonomy.py -v             # 8 passed
-
-# Live smoke (requires Docker for Postgres + the backend running)
-docker compose up --build -d
-docker compose exec backend uv run alembic upgrade head
-docker compose exec backend uv run python -m scripts.seed_v2_1_smoke_run    # prints seeded run_id + curl commands
-
-# Health
-curl http://localhost:8000/health
-
-# Anonymous reads (canonical-template trust label)
-curl -s "http://localhost:8000/api/v1/cats/wallet_safety/<run_id>" | jq .
-curl -s "http://localhost:8000/api/v1/verifier/runs/<run_id>" | jq '{
-  verifier_version,
-  template: .lineage.template.template_key,
-  trust_label: .lineage.trust_label,
-  cat_result: .cats.wallet_safety.result,
-  run_log_hash: .evidence.run_log_hash,
-  artifacts: (.evidence.verification_artifacts | length),
-  events: .evidence.run_event_count
-}'
-
-# Negative smoke (unknown run)
-curl -i -s "http://localhost:8000/api/v1/cats/wallet_safety/999999999"     # → 404 {"error":"run_not_found"}
-curl -i -s "http://localhost:8000/api/v1/verifier/runs/999999999"          # → 404 {"error":"run_not_found"}
-```
-
----
+The repository has more tests for policy validation, action checks, runtime behavior, templates, instances, wallets, database changes, and the V1 Anchor program.
 
 ## Architecture
 
-The active product surface is the V2/V2.1 path. V1 is foundation infrastructure that proved the deterministic challenge/run/settlement loop and remains reusable for future directions; it is **not** the current judge-facing path.
+The V2 and V2.1 path is the active hosted-run and verification product. The V1 challenge and Anchor code remains foundation code.
 
-### Active path — V2 hosted runtime + V2.1 trust surface
-
-```
-Template (e.g. swap_executor_v1)
-   │  hosted-runtime deployment via AgentOS
-   ▼
-Hosted Instance  (carries trust_label, policy envelope, runtime handle)
-   │  recurring completed runs (cron / on-demand)
-   ▼
-Completed Run   (run_log_hash, RunEvent stream, VerificationArtifact set)
-   │
-   ├─▶ Wallet Safety Cat       /api/v1/cats/wallet_safety/{run_id}
-   │     deterministic pass/fail over wallet-safety RunInvalidReason
-   │
-   └─▶ Public Verifier V0      /api/v1/verifier/runs/{run_id}
-         single proof document: run + lineage + evidence + embedded Cat
+```mermaid
+flowchart TD
+  UI[Next.js interface] --> API[FastAPI routes]
+  API --> TS[Template and instance services]
+  TS --> RT[Hosted runtime]
+  RT --> PE[Policy engine]
+  PE --> AV[Action validator]
+  AV --> SOL[Solana devnet]
+  RT --> DB[(PostgreSQL)]
+  DB --> CATS[Wallet Safety and Rebalance Policy Cats]
+  CATS --> VER[Public Verifier]
+  VER --> API
 ```
 
-What this is for, in plain language:
-- **V2** turns benchmark-linked templates into deployable hosted agent instances. Instances carry **benchmark lineage**, not inherited benchmark reputation — the canonical template's score does not transfer to a deployed instance, by design.
-- **V2.1** makes every completed run inspectable on its own merits: a Cat verdict for one named trust dimension, plus a Verifier document that any judge, partner, or Proof Card UI can fetch without reimplementing internal logic.
+### Active V2 and V2.1 path
 
-### Backend layout
+- `backend/src/services/` manages templates, instances, wallets, runs, and other application operations.
+- `backend/src/runtime/` contains the hosted-runtime boundary.
+- `backend/src/policy/` validates the policy envelope and creates the wallet policy.
+- `backend/src/integrity/action_validator.py` checks actions before execution.
+- `backend/src/integrity/cats/` checks completed runs.
+- `backend/src/integrity/verifier/` builds the public proof document.
+- `backend/src/db/` stores the data model and database setup.
 
-```
-agent-rank/
-├── backend/
-│   ├── src/
-│   │   ├── api/                  FastAPI routes (cats, verifier, templates, instances, flagship, leaderboard, …)
-│   │   ├── integrity/
-│   │   │   ├── cats/             Wallet Safety Cat: deterministic compute + schemas
-│   │   │   ├── verifier/         Public Verifier V0: builder + Pydantic allowlist schemas
-│   │   │   ├── failure_taxonomy.py    SagaFailureReason + RunInvalidReason enums (single source of truth)
-│   │   │   └── …                 Action validator, completion evaluator, run auditor, settlement verifier
-│   │   ├── runtime/              AgentOS hosted-runtime adapter (V2 SDK boundary)
-│   │   ├── policy/               Wallet-policy engine (Privy-bound, devnet allowlist)
-│   │   ├── providers/            Hosted-instance provider for V2 path
-│   │   ├── services/             Instance saga, flagship cron, swap service, signing client, …
-│   │   ├── db/                   SQLAlchemy models + Alembic migrations
-│   │   └── main.py               FastAPI app
-│   ├── tests/
-│   │   ├── integration/          test_wallet_safety_cat.py, test_verifier_v0.py, test_seed_v2_1_smoke_run.py, …
-│   │   └── test_task_a6_failure_taxonomy.py    A-6 enum regression
-│   └── scripts/
-│       └── seed_v2_1_smoke_run.py    Deterministic local Postgres seeder for the V2.1 smoke
-├── programs/agent_arena/         V1 Anchor program (Rust). Foundation; not the active path.
-├── frontend/                     Next.js + Privy auth (admin / template / instance / flagship surfaces)
-└── docker-compose.yml            Postgres + backend + frontend (devnet defaults)
-```
+### V1 foundation
 
-### V1 — foundation, not the active surface
+`programs/agent_arena/` contains the Rust Anchor program for the earlier challenge, settlement, and rank flow.
 
-V1 proved the controlled benchmark loop: a strategy submission, a runner that observed → decided → validated → executed → logged, and deterministic settlement on actual on-chain token balances. It still ships in the codebase (`programs/agent_arena/`, V1 leaderboard / challenges / strategies / agents API surface, AgentRank score) and remains the structural foundation for the V2/V2.1 evidence model — RunEvents, VerificationArtifacts, run_log_hash, completion-vs-lifecycle separation. V1 is **not** what a hackathon judge should evaluate the product on. It is reusable infrastructure for the V3 directions below.
+This program supplied useful run and evidence concepts. It is not the current Public Verifier and does not anchor the current proof document on-chain.
 
----
+## Run Proof Arena locally
 
-## How Proof Arena Stays Credible
+### Requirements
 
-**The atomic unit is a `Run`** — a completed agent execution with a recorded action stream, transaction signatures, evidence artifacts, a `run_log_hash`, and a definite outcome. Every assurance question worth asking is a question about a Run. Proof Arena turns each Run into a deterministic Cat verdict and a single, partner-consumable Verifier document. (Compare: Respan's atomic unit is a `span` — debug latency spans, evaluate execution spans. Different unit, different decision class, different audience.)
+- Python 3.12 and [uv](https://docs.astral.sh/uv/).
+- Docker and Docker Compose for the PostgreSQL and HTTP smoke path.
+- Node.js 20 or later for the optional Next.js interface.
+- Rust, Solana CLI, and Anchor 0.32.1 only for V1 Anchor work.
 
-**Under the hood, Proof Arena is an assurance harness:** hosted agent templates run inside policy-controlled wallets, emit verifiable evidence, and are evaluated by deterministic Cats before any trust claim is made. The verification + eval layer above is what consumers see; the assurance harness is the engineering shape that produces it.
+The backend package accepts Python 3.11 or later. The supplied Docker image uses Python 3.12.
 
-Five rules that define the product:
-
-1. **Per-run proof first** — every completed hosted-instance run produces a single inspectable JSON document at `/api/v1/verifier/runs/{run_id}`. Trust starts there, not at a leaderboard rank.
-2. **Deterministic verdicts only in the trust path** — Cats compute pass/fail over a bounded set of named `RunInvalidReason` members with static critique copy and per-check IDs. No LLM judgment in the verdict, no scoring-formula opacity, no human-rated review at the trust base. (Hamel-style discipline: LLM judges are layered above only as explanation, never as the verdict source.)
-3. **Evidence first** — `run_log_hash`, `RunEvent` stream, `VerificationArtifact` metadata, and the run's lineage are stored before any verdict is computed. Verdicts are recomputable from evidence, so scoring formulas and Cat composition can evolve without losing data.
-4. **Lineage, not inheritance** — a deployed customized instance carries the lineage of its template (which template, which version, which trust label) but does NOT inherit the canonical template's benchmark score. Trust is per run, not per ancestry.
-5. **No silent state mutation** — Cat and Verifier are read-only. Static guards lock no DB writes (row-count delta tests across all 7 mutable tables, including `rank_snapshots`) and no LLM imports.
-
-### Technical Decisions
-
-- **Verifier composes the Cat, never duplicates it** — `compute_wallet_safety_cat` and `resolve_run_and_instance` are reused verbatim by `backend/src/integrity/verifier/builder.py`. A grep audit locks zero Cat-internal symbols (`WALLET_SAFETY_REASONS`, `_REASON_TO_CHECK`, `_CHECK_IDS`, `_critique_for`, `FAILURE_COPY_MAP`) re-imported in the verifier modules.
-- **Auth keyed on `AgentInstance.trust_label`, never on `Agent.subject_type`** — locked by an asymmetric test pair: `customized_instance` trust + `canonical_template` subject_type → 401; `canonical_template` trust + `customized_instance` subject_type → 200. `subject_type` is lineage metadata only.
-- **Devnet-only execution** — three independent guard layers (wallet creation chain ID, runtime assertion, enclave policy allowlist) reject mainnet RPC URLs. V2 hosted-instance Anchor instructions are dormant: `instance.onchain_address` stays `None`; settlement partitions out hosted-instance runs.
-- **Privy agentic wallets, deny-by-default policy** — wallet creation binds a deny-by-default policy with a six-program allowlist (Whirlpools v2, SPL Token, ATA, System, Memo, ComputeBudget). Mutation RPCs require a `privy-authorization-signature` header signed with a P-256 authorization key the platform controls; the wallet's raw key never leaves Privy's enclave.
-- **Orca Whirlpools on devnet** — Jupiter has no Solana devnet deployment, so the V2 swap backend is Orca with the policy allowlist derived from a real swap footprint. (V1's Jupiter HTTP path remains in the legacy V1 codebase as foundation.)
-- **Completion validity is separate from lifecycle status** — a run can finish (`status="completed"`) but be benchmark-invalid (`completion_status="invalid"`) if a wallet-safety `RunInvalidReason` fires.
-
----
-
-## Trust Model & Non-Claims
-
-What Proof Arena claims:
-
-- The Verifier composes the Cat. Cat-verdict logic is not duplicated — `compute_wallet_safety_cat` and `resolve_run_and_instance` are imported and called verbatim. (Locked by spec test #11 and a `WALLET_SAFETY_REASONS|_REASON_TO_CHECK|_CHECK_IDS|_critique_for|FAILURE_COPY_MAP` grep audit on the verifier modules.)
-- No LLM in the trust path. (Locked by a static-import grep test on `backend/src/integrity/verifier/` and `backend/src/api/verifier.py`.)
-- No DB writes in the verifier path. (Locked by a row-count delta test across all 7 mutable tables, including `rank_snapshots`.)
-- Auth keyed on `AgentInstance.trust_label`, never on `Agent.subject_type`. (Locked by an asymmetric pair: customized trust + canonical subject_type → 401; canonical trust + customized subject_type → 200.)
-- Private fields never appear in `resp.text`: 13 sentinel **values** + 13 literal field-name **substrings** are asserted absent (`runtime_handle_json`, `effective_config_json`, `system_prompt`, `wallet_address`, `hosted_wallet_ref`, `uri_or_ref`, `state_snapshot_json`, `*_payload_json`, `quote_snapshot_ref`, `last_failure_reason`, etc.).
-
-What Proof Arena does **not** claim:
-
-- **No mainnet custody.** The V2 hosted runtime targets Solana **devnet** only; mainnet RPC URLs are rejected at three independent guard layers (wallet creation, runtime assertion, enclave policy).
-- **No instance score inheritance.** A deployed customized instance does **not** inherit the canonical template's benchmark score. Benchmark lineage (which template, which version) is preserved in the response; reputation is not transferred.
-- **No new failure-taxonomy enum members.** `RunInvalidReason` membership is locked by a baseline-pin test; V2.1 reuses the existing 11 members (6 V1 + 5 V2 hosted-path) and does not add a Cat- or Verifier-owned enum.
-- **No marketplace, no consumer agent ranking, no cross-runtime certification.** Those are explicit non-goals at this stage.
-
----
-
-## How to Run Locally
-
-### Prerequisites
-
-- Python 3.12 + [uv](https://docs.astral.sh/uv/)
-- Docker (only for the live-smoke path; not needed for pytest)
-- Optional, only for V1 Anchor work: Rust + Solana CLI + Anchor
-
-### Pytest path (no Docker)
+### Quick test path
 
 ```bash
-git clone https://github.com/degencodebeast/agent-rank.git
-cd agent-rank/backend
+git clone https://github.com/degencodebeast/proof-arena.git
+cd proof-arena/backend
 uv sync
-uv run pytest tests/integration/test_wallet_safety_cat.py tests/integration/test_verifier_v0.py tests/test_task_a6_failure_taxonomy.py -v
+uv run pytest \
+  tests/integration/test_wallet_safety_cat.py \
+  tests/integration/test_verifier_v0.py \
+  tests/test_task_a6_failure_taxonomy.py \
+  -q
 ```
 
-Expected: **56 passed**. Integration tests use a fresh in-memory SQLite engine per test (see `tests/integration/conftest.py`), so no Postgres is required.
+This path uses an in-memory SQLite database. It does not require Docker or a Solana key.
 
-### Docker / Postgres live smoke
+### PostgreSQL and HTTP smoke path
+
+The supplied Compose file is a local demo. It is not a production deployment.
+
+Set the key-file path to an existing Solana devnet keypair. The Cat and verifier smoke seed does not send a Solana transaction, but Docker must mount the configured file.
 
 ```bash
-cd agent-rank
+cd proof-arena
+
+export PROOF_ARENA_TREASURY_KEYPAIR_HOST=/absolute/path/to/devnet-keypair.json
+export PRIVY_APP_ID=local-smoke-unused
+export PRIVY_APP_SECRET=local-smoke-unused
+export NEXT_PUBLIC_PRIVY_APP_ID=local-smoke-unused
+
 docker compose up --build -d
 docker compose exec backend uv run alembic upgrade head
-
-# Seed one deterministic completed hosted-instance run + print the curl commands
 docker compose exec backend uv run python -m scripts.seed_v2_1_smoke_run
-
-# Then hit /health, /cats/wallet_safety/{run_id}, /verifier/runs/{run_id}
 ```
 
-The seed script is read-only with respect to the rest of the app: it inserts one `AgentTemplate` (idempotent), one `AgentInstance`, one bridge `Agent`, one `Challenge`, one `Run`, two `RunEvent` rows, and one `VerificationArtifact`. It uses `trust_label="benchmarked_canonical_template"` so anonymous curls return 200.
+The seed prints a `run_id`. Use it in the three proof routes below.
 
-### Frontend (optional)
+### Optional web interface
 
 ```bash
-cd agent-rank/frontend
-npm install
+cd frontend
+npm ci
 npm run dev
 ```
 
-The frontend is **not** required to evaluate the V2.1 trust surface — both Cat and Verifier are pure HTTP endpoints.
+Open `http://localhost:3000`. The backend runs at `http://localhost:8000` in the Compose setup.
 
----
+## API routes
 
-## API Examples
+All proof routes use the `/api/v1` prefix.
 
-### Wallet Safety Cat — public canonical-template run
+| Method | Route | Result |
+| --- | --- | --- |
+| `GET` | `/api/v1/cats/wallet_safety/{run_id}` | Wallet Safety result for a completed hosted run. |
+| `GET` | `/api/v1/cats/rebalance_policy/{run_id}` | Rebalance Policy result for a supported rebalance run. |
+| `GET` | `/api/v1/verifier/runs/{run_id}` | One proof document with the run, origin, evidence, event totals, and Cat results. |
 
-```bash
-$ curl -s "http://localhost:8000/api/v1/cats/wallet_safety/<run_id>" | jq .
-{
-  "run_id": 6,
-  "instance_id": 4,
-  "subject_type": "canonical_template",
-  "trust_label": "benchmarked_canonical_template",
-  "result": "pass",
-  "reason": null,
-  "critique": "",
-  "run_completion_status": "complete",
-  "off_scope_invalid_reason": null,
-  "scope_note": null,
-  "evidence": { "run_log_hash": "…", "primary_event_id": null, "verifier_url": null },
-  "checks": [
-    { "check_id": "envelope_slippage_check",         "result": "pass" },
-    { "check_id": "envelope_token_universe_check",   "result": "pass" },
-    /* … 8 more deterministic per-check IDs … */
-  ]
-}
-```
-
-### Public Verifier V0 — same run, full proof JSON
+Example:
 
 ```bash
-$ curl -s "http://localhost:8000/api/v1/verifier/runs/<run_id>" | jq '{verifier_version, run: .run.run_id, trust_label: .lineage.trust_label, template: .lineage.template.template_key, cat: .cats.wallet_safety.result, run_log_hash: .evidence.run_log_hash}'
-{
-  "verifier_version": "v0",
-  "run": 6,
-  "trust_label": "benchmarked_canonical_template",
-  "template": "v2_1_smoke_template",
-  "cat": "pass",
-  "run_log_hash": "1de9…"
-}
+RUN_ID=42
+
+curl -s "http://localhost:8000/api/v1/cats/wallet_safety/${RUN_ID}" | jq .
+curl -s "http://localhost:8000/api/v1/cats/rebalance_policy/${RUN_ID}" | jq .
+curl -s "http://localhost:8000/api/v1/verifier/runs/${RUN_ID}" | jq .
 ```
 
-The full Verifier response is one JSON document with four blocks: `run` (18 public-safe Run fields), `lineage` (instance + trust_label + subject_type + nested template), `evidence` (run_log_hash + RunEvent aggregate signals + verification-artifact metadata, no payloads, no `uri_or_ref`), and `cats.wallet_safety` (verbatim Cat verdict).
+### Read access
 
-### Negative smoke
+Read access uses the instance trust label:
 
-```bash
-$ curl -i -s "http://localhost:8000/api/v1/verifier/runs/999999999"
-HTTP/1.1 404 Not Found
-…
-{"error":"run_not_found"}
+- `benchmarked_canonical_template`: public read;
+- `benchmark_compatible_customized_instance`: owner authorization required;
+- `external_custom_runtime`: not supported by the current route.
+
+## Security rules
+
+These rules apply to the active hosted path:
+
+1. **Devnet only.** The policy engine rejects a non-devnet chain.
+2. **Deny by default.** A wallet action needs an allow rule.
+3. **Check before execution.** The runner does not execute an invalid action.
+4. **Read-only verification.** Cat and verifier routes do not write to the database.
+5. **Explicit public fields.** Verifier response fields are listed by hand.
+6. **Private fields stay absent.** Tests check both private field names and private sentinel values.
+7. **Fixed check code.** The Cat and verifier route files do not import model libraries.
+8. **Origin is not reputation.** An instance records its template origin but does not inherit the template's score.
+
+The hosted runtime can use model libraries. The no-model rule applies only to the Cat and Public Verifier result path.
+
+## Honest limits
+
+- Proof Arena does not provide mainnet custody. The active hosted path is devnet-only.
+- It does not store the Public Verifier proof document on-chain.
+- It does not provide a public marketplace or cross-runtime certification.
+- One passing run does not prove that future runs will be safe.
+- Wallet Safety maps saved failure reasons. It does not replay every action from raw evidence.
+- External runtimes are outside the current Cat and verifier support boundary.
+- The Next.js interface is not required for the proof APIs and does not yet provide a complete public proof-card product.
+
+The Rebalance Policy demo uses a priced test fixture. The current live runner records balances but does not yet record the required price evidence.
+
+For a real V0 rebalance run, `price_data_present_check` will fail until the runtime records those prices. This is an evidence-capture gap, not a change to the Cat rule.
+
+## Business direction
+
+The current product is the open-source hosted-run verification core: policies, recorded evidence, two Cats, and one Public Verifier document.
+
+Possible product forms are listed below. They are future directions, not shipped offers.
+
+| Direction | Possible user |
+| --- | --- |
+| Proof-card interface | Agent teams that need to share one run result. |
+| Repeated-run safety report | Teams that need a history of checks across many runs. |
+| Partner proof API | Protocols and wallets that need machine-readable run checks. |
+| Version comparison | Teams that need to compare policy, template, or runtime changes. |
+| More Cats | Teams that need checks for settlement, evidence completeness, or another defined risk area. |
+
+The product should expand only when each new Cat has fixed inputs, clear check IDs, saved evidence, tests, and honest limits.
+
+## Technology
+
+| Area | Technology |
+| --- | --- |
+| Backend | Python 3.12 in Docker, FastAPI, Pydantic v2, async SQLAlchemy 2, Alembic, uv |
+| Data | PostgreSQL 16 for the local stack, SQLite for focused tests |
+| Tests | pytest, pytest-asyncio, httpx ASGI transport |
+| Hosted runtime | AgentOS boundary with Agno, OpenAI, and Anthropic support outside the Cat and verifier path |
+| Wallet and authorization | Privy, P-256 authorization signatures, JCS JSON canonicalization |
+| Solana services | solders, solana-py, AnchorPy, Orca devnet path |
+| Web interface | Next.js 16, React 19, strict TypeScript, Tailwind CSS, Privy auth |
+| V1 program | Rust, Anchor 0.32.1, Solana devnet |
+
+## Project structure
+
+```text
+proof-arena/
+├── backend/
+│   ├── src/
+│   │   ├── api/                 FastAPI routes
+│   │   ├── integrity/
+│   │   │   ├── cats/            Wallet Safety and Rebalance Policy
+│   │   │   └── verifier/        Public response builder and schemas
+│   │   ├── policy/              Policy-envelope and wallet-policy rules
+│   │   ├── runtime/             Hosted-runtime boundary
+│   │   ├── services/            Application services
+│   │   ├── providers/           Run providers
+│   │   └── db/                  Models, sessions, and migrations
+│   ├── scripts/                 Smoke seeds and operator scripts
+│   └── tests/                   Unit and integration tests
+├── frontend/                    Next.js interface
+├── agentos_app/                 AgentOS application package
+├── programs/agent_arena/        V1 Rust Anchor foundation
+├── scripts/                     V1 demo and quickstart tools
+├── docker-compose.yml           Local PostgreSQL, backend, and frontend
+└── Anchor.toml                  V1 devnet program configuration
 ```
 
-### Other shipped routes (selected)
+Behavior-sensitive V1 names such as `AgentRankAccount`, `update_agent_rank`, and the `agent_rank` seed remain unchanged for Solana compatibility.
 
-| Method | Path | What it returns |
-|--------|------|-----------------|
-| `GET` | `/health` | Liveness probe |
-| `GET` | `/api/v1/templates` | Template catalog |
-| `GET` | `/api/v1/templates/{template_key}` | Template detail (lineage, not inherited score) |
-| `GET` | `/api/v1/flagship` | Recent flagship-instance runs (unfiltered, chronological) |
-| `GET` | `/api/v1/instances/{instance_id}` | Private instance dashboard |
-| `GET` | `/api/v1/leaderboard?subject=canonical|customized` | V1 leaderboard read model |
-| `GET` | `/api/v1/failure-taxonomy` | Saga + RunInvalidReason enums + copy map |
+## Detailed documents
 
----
+| Document or source | Purpose |
+| --- | --- |
+| [`agentos_app/README.md`](agentos_app/README.md) | AgentOS application setup and boundaries. |
+| [`backend/scripts/agentos_dry_run/README.md`](backend/scripts/agentos_dry_run/README.md) | Hosted-runtime dry-run checks. |
+| [`backend/src/integrity/cats/wallet_safety.py`](backend/src/integrity/cats/wallet_safety.py) | Wallet Safety rules and failure mapping. |
+| [`backend/src/integrity/cats/rebalance_policy.py`](backend/src/integrity/cats/rebalance_policy.py) | Rebalance Policy checks. |
+| [`backend/src/integrity/verifier/schemas.py`](backend/src/integrity/verifier/schemas.py) | Public response fields. |
+| [`backend/src/integrity/verifier/builder.py`](backend/src/integrity/verifier/builder.py) | Public proof document builder. |
+| [`docs/superpowers/specs/2026-08-04-proof-arena-readme-design.md`](docs/superpowers/specs/2026-08-04-proof-arena-readme-design.md) | README rewrite design and claim rules. |
 
-## Roadmap
+## License
 
-| Phase | Status | What it covers |
-|-------|--------|----------------|
-| **V1** — controlled benchmark core | foundation, not the active product surface | Strategy submission, runner (observe → decide → validate → execute → log), deterministic on-chain settlement, AgentRank score, public leaderboard. Reusable for V3 directions. |
-| **V2** — hosted template runtime | shipped | Benchmark-linked templates become deployable hosted agent instances with policy envelope, trust label, runtime handle, saga lifecycle, devnet-only execution. Deployments carry **lineage, not inherited benchmark reputation**. |
-| **V2.1 Trust/Eval Core** | shipped | Wallet Safety Cat + Public Verifier V0. Read-only, deterministic, no LLM, no DB writes from the trust path. |
-| **V2.1 follow-ons** | next | Proof Card UI over Verifier JSON, more Cats beyond wallet safety, recurring trust summaries over the flagship 6-hour runs, TR1-narrow partner trust endpoint. |
-| **V3** — multi-direction | future | Direction A: **Proof Card UI / partner trust products** as standalone surfaces. Direction B: **Agent Battles** — competitive head-to-head benchmarks reusing the V1 challenge/run/settlement primitives, with V2.1 evidence/proof attached from day one. Direction C: **richer template-linked reputation** without instance score inheritance. Direction D: **optional on-chain anchoring** of Verifier hashes if and only if it ships explicitly later (currently not claimed). Direction E: **broader trust/eval surfaces** (continuous monitoring, version-comparison reports). Marketplace and cross-runtime distribution remain explicitly downstream of mature trust boundaries. |
+The root package metadata declares the ISC license. The repository does not currently include a root `LICENSE` file.
 
-The throughline: **V1 proved agents can be measured. V2 made benchmark-linked templates deployable. V2.1 made completed runs inspectable and trustable per run. V3 broadens this into richer trust products and competitive experiences with proof/evidence built in from day one.**
-
----
-
-## Who Is This For
-
-| Audience | Why Proof Arena |
-|---|---|
-| **Agent developers** building Solana wallet-action agents | Need to prove the code stays inside its declared trust envelope before letting anyone touch it with mainnet capital. Without per-run trust evidence, the only proof is a tweet. |
-| **DeFi protocols, wallets, marketplaces, launchpads** evaluating agents to whitelist, integrate, or recommend | Need to reason about per-run trust signals, not just public competition rank. A read-only `GET` returns the deterministic answer. |
-| **Hackathon judges and partners** | Can fetch one JSON document over HTTP and read the answer to "did this run pass its named trust checks?" without re-implementing internal logic. No SDK install, no auth dance for canonical-template runs. |
-| **The first wave of Solana agent teams** (Agent Arc, Lomen AI, Armor Wallet, XAAM, etc.) who shipped at Breakout / Cypherpunk | Need credible third-party trust evidence to attract users, raise, and integrate with serious capital — not another self-reported dashboard. |
-
-## Business Direction
-
-The wedge is **per-run trust evidence**. The business is **trust and reputation infrastructure for onchain agents.**
-
-| Stage | Offer | Buyer |
-|-------|-------|-------|
-| **Now** (V2.1, shipped) | Wallet Safety Cat + Public Verifier V0. Per-run trust verdicts. Private benchmark reports. | Agent teams needing credible third-party trust evidence before public launch. |
-| **Next** (V2.1 follow-ons) | Recurring trust summaries over flagship 6-hour runs. Proof Card UI over Verifier JSON. More named Cats (settlement correctness, evidence completeness, policy compliance). | Agent teams iterating on strategies; DeFi protocols evaluating partners. |
-| **Scale** (V3 trust feed) | Partner trust feed / API (TR1-narrow). Cross-runtime trust adapters under the same evidence contract. Optional on-chain anchoring of Verifier hashes if and only if it ships explicitly. | Protocols, wallets, launchpads, marketplaces consuming trust signals at integration time. |
-| **Long-term** | Enterprise AI evaluation infrastructure beyond crypto — coding agents, agentic workflows, model gateways — under the same deterministic-checks-as-trust-base discipline. | Enterprise AI vendors needing audit-grade evaluation evidence. |
-
-The temporal posture is the moat: **pre-trust, deterministic-checks-first, onchain, Solana-native.** Generic LLM observability (Respan AI) and agent identity registries (AgentFolio) are adjacent surfaces, not the same product.
-
----
-
-## Why Solana
-
-- Sub-second finality — benchmarks settle in minutes, not hours.
-- Low fees — high-frequency agent actions are economically viable.
-- Devnet maturity — full Anchor + Privy + Jupiter/Orca composability without mainnet risk during V2 hardening.
-- The agentic-payment cohort is already on Solana (x402 Solana implementations like ag402, MoltsPay, x402-rs are live; Privy agentic-wallet posture is mature; Cypherpunk/Breakout shipped a wave of onchain agent teams) — the agents that need a verification layer first are already here.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.12, FastAPI, SQLAlchemy 2.0 (async), Alembic, Pydantic v2, pytest + httpx ASGITransport, uv |
-| Database | PostgreSQL 16 (live smoke), SQLite in-memory (test fixtures) |
-| Hosted runtime | AgentOS (V2 SDK), import boundary enforced inside `backend/src/runtime/` |
-| Wallet / signing | Privy agentic wallets, P-256 authorization keys, JCS-canonicalized signing |
-| Swap execution (V2 hosted path) | Orca Whirlpools on Solana devnet (Jupiter deferred — no Solana devnet deployment) |
-| On-chain (V1 foundation) | Anchor (Rust) on Solana devnet — `programs/agent_arena/` |
-| Frontend | Next.js + React + Tailwind, Privy auth |
-
----
-
-## What Proof Arena Is Not (Out of Scope)
-
-- Not a generic LLM eval harness — the Cat is one bounded trust dimension, not a free-form judge.
-- Not a custody product — Privy holds keys; Proof Arena holds an authorization key bound to a deny-by-default policy.
-- Not a mainnet trading agent — devnet only at this stage.
-- Not a marketplace — distribution comes after trust matures.
-- Not a centralized scoring oracle — Cat verdicts and Verifier documents are deterministic compositions over already-stored run evidence; the formula is auditable, not authoritative-by-claim.
-
----
-
-## FAQ
-
-**Why not just use Respan / LangSmith / Braintrust?**
-Generic LLM observability and eval platforms are post-deployment and LLM-judge-friendly. They help you find what broke after traffic flowed. Onchain agents need a different posture: pre-trust deterministic verdicts before the agent gets more authority. Different temporal slot, different trust base, different domain. Generic eval platforms catch issues *after* — Proof Arena catches them *before*.
-
-**Why not just trust the public leaderboard / agent competitions?**
-A leaderboard tells you who wins on average. The Verifier tells you whether *this specific run* should have been allowed to touch a wallet. Per-run trust ≠ aggregate rank. A protocol whitelisting an agent for capital integration cares about the run-level signal, not the seasonal champion.
-
-**Why is this on Solana specifically?**
-Three reasons. (1) Devnet maturity — full Anchor + Privy + Orca composability without mainnet risk during V2 hardening. (2) The Privy agentic-wallet posture (P-256 authorization keys, deny-by-default policy, raw key in enclave) gives Proof Arena a programmable trust boundary that other chains' agent stacks don't have yet. (3) The agentic-payment cohort that needs trust evidence first is already on Solana — x402 implementations, the Cypherpunk / Breakout agent teams, and the agent-on-Solana wave more broadly.
-
-**Why not just build this in-house?**
-Strong teams often start there. The hardest part isn't writing the endpoint — it's locking the trust base (deterministic-checks-only, no LLM in the verdict path), the evidence model (`RunEvent` chain + `run_log_hash` + `VerificationArtifact` rows), and the auth contract (`AgentInstance.trust_label`, never `Agent.subject_type`). Each of those took multiple review cycles to get right; reproducing them is months of work, and the result is the same shape Proof Arena already ships.
-
-**What's actually shipped today?**
-56 acceptance tests passing on `main`: 29 Wallet Safety Cat tests, 19 Public Verifier tests, 8 A-6 failure-taxonomy regression tests. Both endpoints are live and read-only. The V2.1 smoke seed script lets you produce a deterministic completed run for live curl smoke without invoking any Solana RPC, Privy, AgentOS, or LLM path.
-
----
-
-## Project Structure
-
-```
-agent-rank/
-├── backend/                      Python / FastAPI (the V2.1 trust surface lives here)
-│   ├── src/api/                  cats.py, verifier.py, templates.py, instances.py, flagship.py, …
-│   ├── src/integrity/            cats/, verifier/, failure_taxonomy.py, action_validator.py, …
-│   ├── src/runtime/              AgentOS adapter (only in-tree SDK import boundary)
-│   ├── src/policy/               Wallet-policy engine
-│   ├── src/services/             Instance saga, flagship cron, swap service, Privy signing client
-│   ├── src/db/                   SQLAlchemy models + Alembic migrations
-│   ├── tests/                    Unit + integration; spec-acceptance tests for Cat (29) and Verifier (19)
-│   └── scripts/                  seed_v2_1_smoke_run.py, flagship_cron.py, agentos_dry_run/, …
-├── programs/agent_arena/         V1 Anchor program (Rust) — foundation
-├── frontend/                     Next.js + Privy
-├── agentos_app/                  AgentOS-side template registration (V2 hosted runtime)
-└── docker-compose.yml            Postgres + backend + frontend, devnet defaults
-```
+Add a root license file before you rely on the package metadata for reuse or distribution terms.
